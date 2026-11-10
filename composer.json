@@ -1,0 +1,49 @@
+{
+    "name": "ivanange/laravel-billing",
+    "description": "Billing for Laravel apps: payment gateway instances, flexible coverage periods for any billable model, offline payments with confirmation, and a Filament admin plugin.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["laravel", "billing", "subscriptions", "payments", "offline-payments", "omnipay", "filament"],
+    "require": {
+        "php": "^8.3",
+        "ext-intl": "*",
+        "illuminate/console": "^12.0|^13.0",
+        "illuminate/database": "^12.0|^13.0",
+        "illuminate/support": "^12.0|^13.0"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.27",
+        "orchestra/testbench": "^10.0|^11.0",
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "suggest": {
+        "filament/filament": "Admin screens: gateway instances, plans, payments, record-payment actions (^5.0)",
+        "omnipay/common": "Online gateways through Omnipay drivers (phase 2)"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ivanange\\Billing\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Ivanange\\Billing\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Ivanange\\Billing\\BillingServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "format": "pint"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

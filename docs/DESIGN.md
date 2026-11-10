@@ -1,0 +1,192 @@
+# Billing package: design (draft for review)
+
+Status: **approved 2026-11-10, phase 1 in progress** as `ivanange/laravel-billing` (namespace `Ivanange\Billing`). Written from a study of the Kompass billing code and a survey of existing packages. Once the package repository is pushed, this file moves there.
+
+## 0. What I understood you asked for (please correct)
+
+1. The package lives in **your personal GitHub account**, not the MacoopA organisation, and is installed into apps through Composer.
+2. **Don't integrate payment SDKs ourselves.** Sit on an existing package that already gives one unified API over many providers. Our value is the layer on top:
+   - admins create **payment driver instances**, including several instances of the same provider with different credentials and options, and choose **which one is active for each provider** (one at a time);
+   - each instance turns specific **payment methods** on;
+   - users choose from the active instances and methods when they subscribe or pay.
+3. A **Billable** contract that any model can implement, so the same package serves different uses: farmers' SMS, school fees by term, tutoring (Kompass), quarterly memberships, and so on.
+4. **Flexible periods:** a month, a quarter, a year, a school term, or any custom date range.
+5. **Translations** built in.
+6. It must be able to **replace Kompass's billing code later**. Kompass already supports several driver rows per provider, but that part doesn't really work (see §2), so this design generalises it carefully.
+7. **Phase 1 is offline payments only.** Online gateways come later through the unified layer.
+
+## 1. Build vs reuse
+
+| Need | Existing option | Verdict |
+|---|---|---|
+| Plans, subscriptions, periods | `laravelcm/laravel-subscriptions` 1.8 (supports Laravel 13; its README says "Payments are out of scope"); `rinvex` (abandoned); `soulbscription` (Laravel 12 at most) | Fixed intervals only, no payment records, no offline flow. **Don't use.** We model the periods ourselves; it's small. |
+| Unified gateway API | **`omnipay/common` 3.5.1** (2026-02, 22M installs, no Laravel dependency, configured **at runtime** per gateway object) | **Use as the gateway layer.** Runtime config is what makes several instances per provider possible. |
+| | `payum/payum` (active, 2.0 alpha; its Laravel bridge stopped at Laravel 8; no African gateways) | Fallback if Omnipay stalls. |
+| | `payzephyr` (2025, ~1k installs, config is **static**: one block per provider name) | Too young, and static config rules out several instances per provider. |
+| Provider drivers | Omnipay drivers: Stripe (last release 2022), PayPal (2018, legacy APIs), Paystack (official, 2026-10); for Flutterwave, MTN MoMo, Orange, Hubtel, NotchPay, CinetPay none exist or they are toys | Use existing drivers as they are (Paystack also covers Ghana mobile money: MTN, Telecel, AirtelTigo). Only where **no Omnipay driver exists** (NotchPay for Cameroon MTN/Orange, Hubtel) we write one: a small class implementing Omnipay's own gateway interface over the provider's HTTP API, so it plugs into the same path as the others. Nothing extra is added on top of Omnipay for providers that already have a driver. |
+| Recurring and webhooks | Not part of Omnipay's core | **Our package** defines these capabilities. For mobile money, "recurring" means scheduled reminders plus one-off charges. |
+
+So the package owns: driver instances and methods, billables, plans and periods, coverage, payment records, the offline flow, the Filament UI and translations. Omnipay owns talking to gateways.
+
+## 2. Lessons from Kompass (what to keep, what to fix)
+
+Keep:
+- the subscription → billing-cycle model, with explicit `period_start`/`period_end` rows;
+- staff confirming manual payments, with a proof upload and `confirmed_by`;
+- reminders and suspension for unpaid periods ("dunning");
+- events such as `BillingCyclePaid`;
+- the encrypted `config` on each driver row;
+- the payer being separate from the beneficiary (`payer_user_id`).
+
+Fix while generalising:
+
+| Kompass problem | Package rule |
+|---|---|
+| Drivers are resolved **by type**: `PaymentDriverManager::driver($type)` takes the first active row, and saving one row deactivates the others of that type. A subscription's `payment_driver_id` doesn't decide which credentials are used. | Keep **one active instance per provider** (switchable off in config), but switch it with an explicit *Activate* action, not a hidden save hook. "Active" only decides what is **offered for new payments**; an existing payment or subscription always resolves **its own instance by id**, so switching the active Stripe account never re-routes old subscriptions or their webhooks. |
+| `driver_type` is a MySQL `ENUM` widened with raw `ALTER TABLE` for each new driver | A plain string column; providers are registered in code |
+| `cascadeOnDelete` from driver to subscriptions, so deleting a driver deletes its subscriptions and their cycles | `restrictOnDelete`; instances are soft-deleted only; a deactivated instance keeps serving existing subscriptions |
+| Methods are display-only: not used in sorting, not stored with the payment, and the checkout reads mismatched keys | The method is a first-class value stored on every payment, with a fixed shape |
+| `getConfigSchema()` returns Filament components, which ties the driver contract to Filament | Drivers describe their settings as plain data; the Filament plugin draws the form |
+| Hard-coded type lists for availability (`ADMIN_ONLY…`, `RECURRING_…`) | Taken from the capability interfaces plus per-instance availability rules |
+| Subscriptions belong to `User` only, with EUR hard-coded | Any model can be billed or pay (polymorphic); currency is set per plan and per instance |
+| Only monthly periods via `anchor_day`; no `paid_until` | A period engine (§4) with a cached `paid_until` |
+| Literal untranslated strings in the driver resource | Every string under the `billing::` translation namespace |
+
+## 3. Domain model
+
+```
+Billable (contract + HasBilling trait)         e.g. Farmer, User, Student, Company
+  └─ Subscription ── plan_id, billable (morph), payer (morph, defaults to billable),
+       │             gateway_instance_id (null = offline), status, paid_until (cached),
+       │             grace_days, auto_renew
+       └─ CoveragePeriod ── starts_on, ends_on, amount, currency,
+                            status: pending | paid | overdue | waived | void
+Payment ── payer (morph), gateway_instance_id, method, amount, currency,
+           status: recorded | confirmed | failed | refunded | void,
+           reference (receipt no.), external_id, proof_path, notes,
+           recorded_by, confirmed_by, confirmed_at, meta (json)
+  └─ PaymentAllocation ── payment_id, coverage_period_id, amount
+                          (one payment can cover many periods or many subscriptions,
+                           e.g. a co-operative paying for 40 farmers at once)
+Plan ── name, billable_type (optional restriction), currency, translations
+  └─ PlanPrice ── duration (unit: day|week|month|quarter|year, count) or calendar_id,
+                  amount, label ("1 month", "Season", "Year")
+BillingCalendar ── named fixed periods (e.g. school terms, rainy season), each with dates
+GatewayInstance ── name, provider (string key), credentials (encrypted:array),
+                   settings, enabled_methods (json), currencies, availability rules,
+                   is_active, sort, soft deletes
+```
+
+- **Amounts** are integer minor units plus an ISO currency code.
+- **`paid_until`** is the latest `ends_on` of paid or waived periods. It is cached on the subscription and recomputed in one place.
+- **Covered** means `paid_until + grace_days >= date`. The `HasBilling` trait provides `isCovered($date, $plan = null)` and a `scopeCovered($date)` query filter. Farmcast's weekly send would use `Farmer::active()->covered(today())`.
+
+## 4. Period engine
+
+`PeriodCalculator` turns a request into one or more coverage periods:
+
+- **Duration:** a start date plus unit × count, e.g. 3 months.
+- **Custom range:** explicit `starts_on`/`ends_on`, e.g. "this year".
+- **Calendar:** one named period or several, e.g. "Term 2" or "Rainy season 2027".
+- **Default start:** the day after the current `paid_until`, or today if the cover has lapsed. Gaps are allowed; overlaps are rejected unless an admin overrides.
+- **Month-end clamping** works like Kompass: 31 Jan + 1 month = 28/29 Feb.
+- **Out of scope for v1:** proration and mid-period plan changes.
+
+## 5. Gateway layer
+
+```php
+interface PaymentProvider                        // one class per provider, registered in code
+{
+    public static function key(): string;        // 'offline', 'paystack', 'notchpay', ...
+    public static function settingsSchema(): array;   // plain field definitions, no Filament
+    public static function methods(): array;     // PaymentMethodDefinition[] it can offer
+    public function forInstance(GatewayInstance $instance): static;
+}
+// Capability interfaces, all optional:
+interface ChargesOnce          { start(PaymentIntent): Started; complete(Request|string ref): PaymentResult; }
+interface ReceivesWebhooks     { verifyAndParse(Request): ?PaymentResult; }
+interface Refunds              { refund(Payment, ?int amount): PaymentResult; }
+interface NativeSubscriptions  { subscribe(Subscription): string; cancel(Subscription): void; }
+interface ManualConfirmation   { /* marker: payments stay "recorded" until a person confirms */ }
+```
+
+- **`OfflineProvider`** is part of the core.
+  - Methods: `cash`, `bank_transfer`, `mobile_money_manual` (MoMo sent to a merchant number and checked by a person), `cheque`.
+  - Instance settings: the instructions shown to payers (account number, MoMo merchant number), whether a receipt number is required, and whether a proof upload is required.
+- **`OmnipayProvider`** is one generic adapter. A small subclass per provider maps settings onto `Omnipay::create($name)->initialize($instance->credentials)`, using the credentials of **the instance the payment belongs to**.
+- **Several instances per provider:** for example "Paystack Ghana (GHS)" and "Paystack Nigeria (NGN)". One is active per provider (`billing.gateways.one_active_per_provider`, default `true`); the others stay configured and can be switched to with one click.
+- **What a user sees:** active instances × their enabled methods, filtered by currency, by billable type and by the capability needed (one-off or recurring). Each payment stores `gateway_instance_id` and `method`.
+
+## 6. Offline flow (phase 1)
+
+1. **Record payment.** A Filament action on any billable's resource, plus a bulk action for groups. The admin picks:
+   - the payer;
+   - the billable(s);
+   - the plan and a price preset (1 month, season, year) or custom dates or calendar period(s);
+   - the amount (suggested from the plan price and editable);
+   - the instance and method;
+   - the receipt or reference number, an optional proof upload, and notes.
+2. **What gets created:** the `Payment`, its `CoveragePeriod`s and `PaymentAllocation`s, all in one database transaction.
+3. **Confirmation** depends on a config switch. Either the payment is confirmed immediately, or it waits for maker-checker: a **different** user with the `billing.confirm` permission confirms it.
+4. **When confirmed,** the periods become `paid`, `paid_until` is recomputed, and `PaymentConfirmed` plus `CoverageExtended` fire. The app listens; Farmcast, for example, can SMS a receipt.
+5. **Daily command:** flags periods as overdue and fires `CoverageExpiring` (N days before the end) and `CoverageLapsed`. Farmcast can text "your forecast subscription ends on …".
+6. **Voiding:** an admin can void a payment, which records a reason and re-derives coverage. Nothing is hard-deleted.
+
+## 7. Filament plugin (optional, in the same repository)
+
+- **`BillingPlugin::make()`** registers resources for gateway instances, plans, calendars, subscriptions and payments. Each resource can be turned on or off.
+- **`RecordPaymentAction`** and a **`CoverageRelationManager`** can be dropped into any billable's resource.
+- **The gateway instance form** is drawn from `settingsSchema()`. Credentials are never shown again after saving and can only be replaced.
+- **Widgets:** cover expiring this week, unconfirmed payments, collected this month.
+- **`GatewayMethodPicker`** is a form component for apps that let users choose how to pay.
+
+## 8. Cross-cutting concerns
+
+- **Translations:** a `billing::` namespace for every label, enum and notification. Ship `en`, `fr` (Cameroon) and `de` (Kompass); add `ar`/`es` when Kompass moves over.
+- **Permissions:** plain Gate abilities (`billing.view`, `billing.record`, `billing.confirm`, `billing.manage-gateways`) that the app maps onto its own roles. No Spatie dependency.
+- **Security:**
+  - credentials are `encrypted:array` and never logged;
+  - webhook signatures are always verified;
+  - proof files go on a private disk and are downloaded through a permission-checked route;
+  - amounts are validated on the server;
+  - every change is audited (`recorded_by`, `confirmed_by`, void reason).
+- **Requirements:** PHP 8.3+, Laravel 12/13, Filament 5 (plugin only). `omnipay/common` is only *suggested* until phase 2.
+
+## 9. Delivery
+
+- **Repository:** `<your-github>/<package-name>` (name to be decided). Apps install it with a Composer `vcs` repository entry; locally, a `path` repository makes editing easy.
+- **Namespace:** to be decided, e.g. `Vendor\Billing`. The Filament plugin lives under `Vendor\Billing\Filament`.
+- **Phase 1:**
+  - core models and migrations, the period engine, `OfflineProvider`, record/confirm/void, the coverage scope, the daily command, events, the Filament plugin, translations (en/fr);
+  - **Farmcast integration:** `Farmer` implements Billable, the weekly SMS is filtered by cover, and expiry and receipt SMS go out.
+- **Phase 2:** `OmnipayProvider` plus Paystack (Ghana cards and MoMo), webhooks, and a self-service pay link.
+- **Phase 3:** NotchPay and Hubtel drivers, Stripe and PayPal, then migrating Kompass (data migration: `PaymentDriver` → `GatewayInstance`, cycles → `CoveragePeriod` + `Payment`).
+
+## 10. Critical paths and live test scenarios
+
+| # | Path | Kind | Live test (real boundary) |
+|---|---|---|---|
+| 1 | Record a cash payment for 3 months → periods paid → `paid_until` = start + 3 months − 1 day | happy | SQLite + MySQL migrations run for real; model test |
+| 2 | Custom range and calendar period (school term) | happy | same |
+| 3 | Default start = day after `paid_until`; a lapsed cover starts today | edge | same |
+| 4 | An overlapping period is rejected; an admin override is allowed | error | same |
+| 5 | Maker-checker: the person who recorded it cannot confirm it; another user can | auth | Filament action test as two users |
+| 6 | Voiding a payment re-derives coverage; nothing is deleted | edge | same |
+| 7 | One group payment allocated to 40 billables | happy | same |
+| 8 | `covered()` scope with grace days, the day before and after the edge | edge | query against a real DB |
+| 9 | Two instances of one provider: activating one switches the other off; old payments keep their own instance and settings | seam | resolve by id, assert the settings used |
+| 10 | Deactivating or soft-deleting an instance doesn't break existing subscriptions | edge | same |
+| 11 | Credentials are encrypted at rest and not shown back in the form | security | read the raw DB row |
+| 12 | Proof download is blocked without permission | security | HTTP test |
+| 13 | Daily command: overdue marking and expiring/lapsed events, run twice (idempotent) | happy | run the real artisan command |
+| 14 | Translations: every `billing::` key exists in each shipped locale | i18n | key-diff test |
+| 15 | Farmcast: the weekly SMS skips uncovered farmers and an expiry SMS is sent | seam | Farmcast command test with the log SMS driver |
+| 16 | (Phase 2) Paystack charge and webhook in sandbox | seam | opt-in live test using sandbox keys |
+
+## 11. Decisions taken for phase 1 (defaults; change any of them)
+
+1. **Package:** `ivanange/laravel-billing`, namespace `Ivanange\Billing`, Filament plugin under `Ivanange\Billing\Filament`. Built locally first; pushed to github.com/ivanange only once you approve.
+2. **Grace period:** set per plan (`grace_days`, default 0). Farmcast only stops SMS for unpaid farmers once an admin turns on *Only send to farmers with paid cover* in Settings, so deploying doesn't cut anyone off.
+3. **Maker-checker:** supported, off by default (`billing.confirmation.second_person`); with it off, a recorded payment is confirmed at once.
+4. **Group payments:** in phase 1 as a bulk action (one payment, one allocation per farmer).
+5. **Prices:** plans have price presets; the admin can still change the amount for each payment.
