@@ -9,21 +9,14 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Collection;
 use Ivanange\Billing\Contracts\Billable;
 use Ivanange\Billing\Data\PaymentDraft;
 use Ivanange\Billing\Enums\PaymentStatus;
-use Ivanange\Billing\Enums\PeriodStatus;
 use Ivanange\Billing\Events\PaymentRecorded;
 use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Gateways\Providers\OfflineProvider;
-use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Payment;
-use Ivanange\Billing\Models\PaymentAllocation;
-use Ivanange\Billing\Models\Subscription;
-use Ivanange\Billing\Periods\Span;
-use Ivanange\Billing\Support\Money;
 
 /**
  * Records a payment and the cover it buys, for one billable or a group,
@@ -35,7 +28,7 @@ class PaymentRecorder
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly Config $config,
-        private readonly CoverageLedger $ledger,
+        private readonly CoverageAllocator $allocator,
         private readonly PaymentConfirmer $confirmer,
     ) {}
 
@@ -48,9 +41,7 @@ class PaymentRecorder
             $this->guardReference($draft);
             $payment = $this->createPayment($draft, $by);
 
-            foreach ($draft->billables as $billable) {
-                $this->coverBillable($payment, $draft, $billable);
-            }
+            $this->allocator->allocate($payment, $draft);
 
             return [$payment, $confirmNow ? $this->confirmer->apply($payment, $by) : []];
         });
@@ -82,94 +73,6 @@ class PaymentRecorder
             'notes' => $this->clean($draft->notes),
             'recorded_by' => $by?->getAuthIdentifier(),
         ]);
-    }
-
-    private function coverBillable(Payment $payment, PaymentDraft $draft, Model&Billable $billable): void
-    {
-        $subscription = Subscription::query()->firstOrCreate(
-            [
-                'plan_id' => $draft->plan->getKey(),
-                'billable_type' => $billable->getMorphClass(),
-                'billable_id' => $billable->getKey(),
-            ],
-            [
-                'payer_type' => $draft->payer()?->getMorphClass(),
-                'payer_id' => $draft->payer()?->getKey(),
-                'gateway_instance_id' => $draft->gateway->getKey(),
-            ],
-        );
-        $subscription = Subscription::query()->lockForUpdate()->findOrFail($subscription->getKey());
-
-        // Locking read: under MySQL REPEATABLE READ a plain read would use the
-        // transaction's old snapshot and miss periods another admin just
-        // committed for the same billable.
-        $taken = $subscription->coveragePeriods()->getQuery()
-            ->whereIn('status', PeriodStatus::occupying())
-            ->lockForUpdate()
-            ->get(['starts_on', 'ends_on']);
-
-        $spans = $draft->term->spans($draft->startsOn ?? $this->defaultStart($subscription, $taken));
-        if (! $draft->allowOverlap) {
-            $this->guardOverlap($taken, $spans, $billable);
-        }
-
-        $shares = Money::split($draft->amountPerBillable, count($spans));
-
-        foreach ($spans as $index => $span) {
-            $period = CoveragePeriod::query()->create([
-                'subscription_id' => $subscription->getKey(),
-                'billable_type' => $billable->getMorphClass(),
-                'billable_id' => $billable->getKey(),
-                'starts_on' => $span->startsOn,
-                'ends_on' => $span->endsOn,
-                'grace_ends_on' => $this->ledger->graceEnd($draft->plan, $span->endsOn),
-                'label' => $span->label,
-                'amount' => $shares[$index],
-                'currency' => $draft->plan->currency,
-                'status' => PeriodStatus::Pending,
-            ]);
-
-            PaymentAllocation::query()->create([
-                'payment_id' => $payment->getKey(),
-                'coverage_period_id' => $period->getKey(),
-                'amount' => $shares[$index],
-            ]);
-        }
-    }
-
-    /**
-     * Continue right after the last reserved day while the cover is still
-     * running or in grace; after a lapse, start today (no back-paying gaps).
-     */
-    /**
-     * @param  Collection<int, CoveragePeriod>  $taken
-     */
-    private function defaultStart(Subscription $subscription, Collection $taken): CarbonImmutable
-    {
-        $today = CarbonImmutable::today();
-        $last = $taken->max(fn (CoveragePeriod $period) => $period->ends_on);
-        $next = $last?->addDay();
-
-        if ($next !== null && $next->addDays((int) $subscription->plan->grace_days)->gte($today)) {
-            return $next;
-        }
-
-        return $today;
-    }
-
-    /**
-     * @param  Collection<int, CoveragePeriod>  $taken
-     * @param  list<Span>  $spans
-     */
-    private function guardOverlap(Collection $taken, array $spans, Model&Billable $billable): void
-    {
-        foreach ($spans as $span) {
-            foreach ($taken as $period) {
-                if ($span->overlaps($period->starts_on, $period->ends_on)) {
-                    throw BillingException::overlap($billable->billingName(), $period->starts_on, $period->ends_on);
-                }
-            }
-        }
     }
 
     private function validate(PaymentDraft $draft): void

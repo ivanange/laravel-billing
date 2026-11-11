@@ -174,8 +174,10 @@ class PaymentResource extends Resource
     private static function statusColor(PaymentStatus $status): string
     {
         return match ($status) {
-            PaymentStatus::Recorded => 'warning',
+            PaymentStatus::Recorded, PaymentStatus::Pending => 'warning',
             PaymentStatus::Confirmed => 'success',
+            PaymentStatus::Failed => 'danger',
+            PaymentStatus::Refunded => 'info',
             PaymentStatus::Void => 'gray',
         };
     }

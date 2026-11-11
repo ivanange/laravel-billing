@@ -28,6 +28,9 @@ use Ivanange\Billing\Support\Money;
  * @property string|null $proof_path
  * @property int|null $recorded_by
  * @property int|null $confirmed_by
+ * @property string|null $external_id
+ * @property string|null $failure_reason
+ * @property array<string, mixed>|null $meta
  * @property GatewayInstance $gatewayInstance
  */
 class Payment extends Model
@@ -47,6 +50,8 @@ class Payment extends Model
             'paid_on' => 'immutable_date',
             'confirmed_at' => 'immutable_datetime',
             'voided_at' => 'immutable_datetime',
+            'failed_at' => 'immutable_datetime',
+            'refunded_at' => 'immutable_datetime',
             'meta' => 'array',
         ];
     }
@@ -124,6 +129,19 @@ class Payment extends Model
     private static function userModel(): string
     {
         return (string) config('billing.user_model', config('auth.providers.users.model'));
+    }
+
+    /**
+     * @return BelongsTo<Model, $this>
+     */
+    public function refunder(): BelongsTo
+    {
+        return $this->belongsTo(self::userModel(), 'refunded_by');
+    }
+
+    public function isOnline(): bool
+    {
+        return data_get($this->meta, 'checkout') !== null;
     }
 
     public function formattedAmount(): string
