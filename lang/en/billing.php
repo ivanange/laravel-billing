@@ -39,6 +39,7 @@ return [
     ],
 
     'errors' => [
+        'gateway_misconfigured' => 'This payment gateway is not set up correctly. Check its settings.',
         'not_offline' => 'Online gateways cannot be used to record a payment by hand.',
         'not_online' => 'This gateway does not take online payments.',
         'price_not_in_plan' => 'This price does not belong to the plan.',

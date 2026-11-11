@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Ivanange\Billing\Gateways\Providers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Ivanange\Billing\Contracts\ReceivesWebhooks;
 use Ivanange\Billing\Data\ChargeResult;
 use Ivanange\Billing\Data\PaymentIntent;
 use Ivanange\Billing\Data\StartedCharge;
 use Ivanange\Billing\Enums\ChargeStatus;
+use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Exceptions\BillingException;
+use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Exceptions\InvalidWebhook;
 use Ivanange\Billing\Gateways\Omnipay\Hubtel\Gateway;
 use Ivanange\Billing\Gateways\Omnipay\Hubtel\Message\StatusResponse;
@@ -74,6 +78,10 @@ class HubtelProvider extends OmnipayProvider implements ReceivesWebhooks
 
     protected function parameters(GatewayInstance $instance): array
     {
+        if (! preg_match('/^[A-Za-z0-9_\-]{1,32}$/', (string) $instance->setting('merchant_account', ''))) {
+            throw BillingException::because('gateway_misconfigured');
+        }
+
         return [
             'apiId' => (string) data_get($instance->credentials, 'api_id', ''),
             'apiKey' => (string) data_get($instance->credentials, 'api_key', ''),
@@ -140,13 +148,26 @@ class HubtelProvider extends OmnipayProvider implements ReceivesWebhooks
             throw InvalidWebhook::payload();
         }
 
-        // Only re-query references this instance actually issued: an
-        // attacker can't make us call Hubtel for arbitrary strings.
-        $known = Payment::query()
+        // Only re-query open payments this instance issued, at most once per
+        // reference every few seconds: an unsigned callback can't make us
+        // hammer Hubtel's (IP-whitelisted, rate-limited) status API.
+        $open = Payment::query()
             ->where('gateway_instance_id', $instance->getKey())
             ->where('reference', $reference)
+            ->whereIn('status', [PaymentStatus::Pending->value, PaymentStatus::Failed->value])
             ->exists();
 
-        return $known ? $this->verify($instance, $reference) : null;
+        if (! $open || ! Cache::add('billing:hubtel-verify:'.$instance->getKey().':'.$reference, true, 10)) {
+            return null;
+        }
+
+        try {
+            return $this->verify($instance, $reference);
+        } catch (GatewayError) {
+            // Hubtel unreachable: the reconcile command will retry.
+            Log::warning('billing: Hubtel status check failed for a callback', ['gateway_instance_id' => $instance->getKey()]);
+
+            return null;
+        }
     }
 }

@@ -39,6 +39,7 @@ return [
     ],
 
     'errors' => [
+        'gateway_misconfigured' => 'Cette passerelle de paiement est mal configurée. Vérifiez ses paramètres.',
         'not_offline' => 'Une passerelle en ligne ne peut pas servir à enregistrer un paiement à la main.',
         'not_online' => 'Cette passerelle n’accepte pas les paiements en ligne.',
         'price_not_in_plan' => 'Ce tarif n’appartient pas à cette formule.',

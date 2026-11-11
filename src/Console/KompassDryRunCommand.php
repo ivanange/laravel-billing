@@ -25,7 +25,7 @@ class KompassDryRunCommand extends Command
         $report = (new KompassInspector($connection))->report();
 
         $this->table(['Kompass driver', 'Type', 'Active', 'Deleted', 'Becomes'], array_map(fn (array $d): array => [
-            "#{$d['id']} {$d['name']}", $d['type'], $d['active'] ? 'yes' : 'no', $d['deleted'] ? 'yes' : 'no',
+            "#{$d['id']} ".$this->clean($d['name']), $this->clean($d['type']), $d['active'] ? 'yes' : 'no', $d['deleted'] ? 'yes' : 'no',
             $d['provider'] ?? 'not migrated (no provider yet)',
         ], $report['drivers']));
 
@@ -47,5 +47,11 @@ class KompassDryRunCommand extends Command
         $this->info('Dry run: nothing was written.');
 
         return self::SUCCESS;
+    }
+
+    /** Values come from another app's database: strip control characters before printing. */
+    private function clean(string $value): string
+    {
+        return (string) preg_replace('/[[:cntrl:]]/', '', $value);
     }
 }

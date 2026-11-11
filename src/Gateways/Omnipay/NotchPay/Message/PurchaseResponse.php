@@ -28,7 +28,15 @@ class PurchaseResponse extends AbstractResponse implements RedirectResponseInter
     {
         $url = $this->data['authorization_url'] ?? null;
 
-        return is_string($url) && str_starts_with($url, 'https://') ? $url : null;
+        return is_string($url) && self::trustedHost($url) ? $url : null;
+    }
+
+    /** Only send payers to the provider's own https hosts. */
+    private static function trustedHost(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        return str_starts_with($url, 'https://') && ($host === 'notchpay.co' || str_ends_with($host, '.notchpay.co'));
     }
 
     public function getRedirectMethod(): string

@@ -5,13 +5,16 @@ declare(strict_types=1);
 namespace Ivanange\Billing\Tests\Feature\Online;
 
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request as HttpRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Ivanange\Billing\Data\CheckoutRequest;
 use Ivanange\Billing\Data\PaymentIntent;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Exceptions\BillingException;
+use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Gateways\Providers\HubtelProvider;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Payment;
@@ -119,6 +122,47 @@ class HubtelProviderTest extends TestCase
         $this->call('POST', route('billing.webhooks', $instance->id), content: 'not json')->assertStatus(401);
 
         Http::assertNothingSent();
+    }
+
+    public function test_callbacks_for_settled_payments_or_repeats_cause_no_outbound_call(): void
+    {
+        $instance = $this->hubtel();
+        $payment = $this->checkout($instance);
+        Http::fake(['api-txnstatus.hubtel.com/*' => $this->txnStatus('Unpaid')]);
+
+        $this->hubtelCallback($instance, $payment->reference)->assertOk();
+        $this->hubtelCallback($instance, $payment->reference)->assertOk();
+        Http::assertSentCount(1);
+
+        $payment->forceFill(['status' => PaymentStatus::Confirmed])->save();
+        Cache::flush();
+        $this->hubtelCallback($instance, $payment->reference)->assertOk();
+        Http::assertSentCount(1);
+    }
+
+    public function test_a_status_api_outage_during_a_callback_is_not_a_500(): void
+    {
+        $instance = $this->hubtel();
+        $payment = $this->checkout($instance);
+        Http::fake(['api-txnstatus.hubtel.com/*' => fn () => throw new ConnectionException('timeout')]);
+
+        $this->hubtelCallback($instance, $payment->reference)->assertOk();
+        $this->assertSame(PaymentStatus::Pending, $payment->refresh()->status);
+    }
+
+    public function test_redirects_only_to_hubtel_and_merchant_account_is_validated(): void
+    {
+        Http::fake(['payproxyapi.hubtel.com/*' => Http::response(['responseCode' => '0000', 'data' => ['checkoutUrl' => 'https://evil.example/hubtel.com']])]);
+        try {
+            app(HubtelProvider::class)->start($this->hubtel(), new PaymentIntent('BIL-X', 100, 'GHS', HubtelProvider::CHECKOUT, 'https://app.test/r'));
+            $this->fail('Expected an untrusted redirect to be refused');
+        } catch (GatewayError) {
+        }
+
+        $bad = $this->hubtel('Bad', active: false);
+        $bad->forceFill(['settings' => ['merchant_account' => '../../admin']])->save();
+        $this->expectExceptionMessage('This payment gateway is not set up correctly.');
+        app(HubtelProvider::class)->verify($bad, 'BIL-X');
     }
 
     public function test_refunds_are_not_offered_for_hubtel(): void

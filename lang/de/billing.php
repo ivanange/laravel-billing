@@ -39,6 +39,7 @@ return [
     ],
 
     'errors' => [
+        'gateway_misconfigured' => 'Dieses Zahlungs-Gateway ist nicht richtig eingerichtet. Prüfen Sie die Einstellungen.',
         'not_offline' => 'Online-Gateways können nicht für manuell erfasste Zahlungen verwendet werden.',
         'not_online' => 'Dieses Zahlungs-Gateway nimmt keine Online-Zahlungen an.',
         'price_not_in_plan' => 'Dieser Preis gehört nicht zum Tarif.',

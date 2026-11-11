@@ -150,6 +150,23 @@ class NotchPayProviderTest extends TestCase
         $this->assertNull($this->provider()->parseWebhook($instance, Request::create('/', 'POST', server: ['HTTP_X_NOTCH_SIGNATURE' => hash_hmac('sha256', $created, 'hsk_test_cm')], content: $created)));
     }
 
+    public function test_a_reference_match_wins_over_another_payments_external_id(): void
+    {
+        $instance = $this->notchpay();
+        $price = $this->monthlyPrice($this->plan(['currency' => 'XAF']), 5000);
+        Http::fake(['api.notchpay.co/payments' => $this->initialized()]);
+        app(OnlineCheckout::class)->start(new CheckoutRequest($this->member('A'), $price->plan, $price, $instance, NotchPayProvider::MTN, phone: '+237670000000'));
+        $first = Payment::query()->sole();
+        $second = Payment::query()->create($first->only(['payer_type', 'payer_id', 'gateway_instance_id', 'method', 'amount', 'currency', 'paid_on', 'meta']) + ['status' => PaymentStatus::Pending, 'reference' => 'trx.abc123x']);
+        $first->forceFill(['external_id' => 'trx.abc123x'])->save();
+
+        $body = (string) json_encode(['type' => 'payment.complete', 'data' => ['reference' => 'trx.abc123x', 'amount' => 5000, 'currency' => 'XAF']]);
+        $this->hook($instance, $body, hash_hmac('sha256', $body, 'hsk_test_cm'))->assertOk();
+
+        $this->assertSame(PaymentStatus::Confirmed, $second->refresh()->status);
+        $this->assertSame(PaymentStatus::Pending, $first->refresh()->status);
+    }
+
     public function test_refund_sends_the_private_key_as_grant(): void
     {
         $price = $this->monthlyPrice($this->plan(['currency' => 'XAF']), 5000);
