@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Ivanange\Billing;
 
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Ivanange\Billing\Console\CheckCoverageCommand;
+use Ivanange\Billing\Console\ReconcilePaymentsCommand;
 use Ivanange\Billing\Gateways\ProviderRegistry;
 
 class BillingServiceProvider extends ServiceProvider
@@ -32,6 +36,8 @@ class BillingServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->loadTranslationsFrom(__DIR__.'/../lang', 'billing');
+        $this->loadViewsFrom(__DIR__.'/../resources/views', 'billing');
+        $this->defineRateLimiters();
         $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
 
         if (config('billing.run_migrations', true)) {
@@ -39,13 +45,20 @@ class BillingServiceProvider extends ServiceProvider
         }
 
         if ($this->app->runningInConsole()) {
-            $this->commands([CheckCoverageCommand::class]);
+            $this->commands([CheckCoverageCommand::class, ReconcilePaymentsCommand::class]);
             $this->publishes([__DIR__.'/../config/billing.php' => config_path('billing.php')], 'billing-config');
             $this->publishes([__DIR__.'/../database/migrations' => database_path('migrations')], 'billing-migrations');
             $this->publishes([__DIR__.'/../lang' => $this->app->langPath('vendor/billing')], 'billing-lang');
+            $this->publishes([__DIR__.'/../resources/views' => resource_path('views/vendor/billing')], 'billing-views');
         }
 
         $this->app->booted(fn () => $this->defineDefaultAbilities());
+    }
+
+    private function defineRateLimiters(): void
+    {
+        RateLimiter::for('billing-webhooks', fn (Request $request): Limit => Limit::perMinute((int) config('billing.webhooks.rate_limit', 120))->by('billing-webhooks|'.$request->ip()));
+        RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute((int) config('billing.pay_links.rate_limit', 30))->by('billing-pay|'.$request->ip()));
     }
 
     /**

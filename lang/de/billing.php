@@ -2,7 +2,7 @@
 
 return [
     'enums' => [
-        'payment_status' => ['recorded' => 'Wartet auf Bestätigung', 'confirmed' => 'Bestätigt', 'void' => 'Storniert'],
+        'payment_status' => ['recorded' => 'Wartet auf Bestätigung', 'pending' => 'Wartet auf den Anbieter', 'confirmed' => 'Bestätigt', 'failed' => 'Fehlgeschlagen', 'refunded' => 'Erstattet', 'void' => 'Storniert'],
         'period_status' => ['pending' => 'Zahlung wartet auf Bestätigung', 'paid' => 'Bezahlt', 'void' => 'Storniert'],
         'subscription_status' => ['active' => 'Aktiv', 'cancelled' => 'Gekündigt'],
         'duration_unit' => ['day' => 'Tag', 'week' => 'Woche', 'month' => 'Monat', 'quarter' => 'Quartal', 'year' => 'Jahr'],
@@ -15,9 +15,12 @@ return [
         ],
     ],
 
-    'providers' => ['offline' => 'Offline (bar, Überweisung, Mobile Money)'],
+    'providers' => ['offline' => 'Offline (bar, Überweisung, Mobile Money)', 'paystack' => 'Paystack (Karten, Mobile Money)'],
 
     'methods' => [
+        'online_card' => 'Karte',
+        'online_mobile_money' => 'Mobile Money',
+        'online_bank_transfer' => 'Banküberweisung',
         'cash' => 'Bar',
         'mobile_money' => 'Mobile Money (an unsere Nummer)',
         'bank_transfer' => 'Banküberweisung',
@@ -33,6 +36,15 @@ return [
     ],
 
     'errors' => [
+        'not_online' => 'Dieses Zahlungs-Gateway nimmt keine Online-Zahlungen an.',
+        'price_not_in_plan' => 'Dieser Preis gehört nicht zum Tarif.',
+        'calendar_price_offline_only' => 'Kalenderpreise können vorerst nur vom Personal erfasst werden.',
+        'email_required' => 'Geben Sie eine gültige E-Mail-Adresse ein.',
+        'phone_required' => 'Geben Sie eine Telefonnummer ein.',
+        'gateway_error' => 'Der Zahlungsanbieter ist nicht erreichbar oder hat die Anfrage abgelehnt. Bitte versuchen Sie es erneut.',
+        'omnipay_missing' => 'Online-Zahlungen benötigen das Paket omnipay/common.',
+        'refund_not_supported' => 'Dieses Gateway kann keine Zahlungen erstatten.',
+        'not_refundable' => 'Nur bestätigte Zahlungen können erstattet werden.',
         'overlap' => ':billable ist bereits vom :start bis :end abgedeckt. Wählen Sie andere Daten oder erlauben Sie die Überschneidung.',
         'instance_deleted' => 'Dieses Zahlungs-Gateway wurde gelöscht und kann nicht aktiviert werden.',
         'not_awaiting_confirmation' => 'Diese Zahlung wartet nicht auf Bestätigung.',
@@ -56,7 +68,48 @@ return [
         'amount_required' => 'Geben Sie den erhaltenen Betrag ein.',
     ],
 
+    'paystack' => [
+        'secret_key' => 'Geheimer Schlüssel',
+        'secret_key_help' => 'Aus Paystack → Settings → API Keys & Webhooks (sk_live_… oder sk_test_…). Prüft auch die Webhook-Signaturen.',
+    ],
+
+    'pay' => [
+        'title' => 'Bezahlen',
+        'for' => 'Für :name',
+        'paid_until' => 'Derzeit bezahlt bis :date.',
+        'no_gateways' => 'Derzeit ist keine Zahlungsart verfügbar. Bitte kontaktieren Sie uns.',
+        'choose' => 'Wie möchten Sie bezahlen?',
+        'method' => 'Zahlungsart',
+        'email' => 'E-Mail (für Ihre Quittung)',
+        'phone' => 'Telefonnummer',
+        'submit' => 'Weiter zur Zahlung',
+        'offline_no_instructions' => 'Fragen Sie uns, wie Sie so bezahlen.',
+        'result_title' => 'Zahlung',
+        'reference' => 'Referenz: :reference',
+        'result' => [
+            'confirmed' => 'Zahlung erhalten. Vielen Dank!',
+            'failed' => 'Die Zahlung ist nicht durchgegangen.',
+            'pending' => 'Wir warten auf den Zahlungsanbieter.',
+            'unchecked' => 'Wir konnten gerade nicht beim Zahlungsanbieter nachfragen; wir versuchen es weiter.',
+            'pending_help' => 'Bestätigen Sie die Anfrage auf Ihrem Telefon, falls Sie eine erhalten haben. Diese Seite zeigt das Ergebnis, sobald der Anbieter bestätigt.',
+        ],
+    ],
+
+    'console' => [
+        'reconciled' => 'Online-Zahlungen geprüft: :confirmed bestätigt, :failed fehlgeschlagen, :pending noch offen, :errors nicht prüfbar.',
+    ],
+
     'ui' => [
+        'pay_link' => [
+            'action' => 'Zahlungslink',
+            'heading' => 'Zahlungslink für :name erstellen',
+            'plan' => 'Tarif',
+            'price' => 'Was bezahlt wird',
+            'expires_days' => 'Gültig (Tage)',
+            'submit' => 'Link erstellen',
+            'done' => 'Zahlungslink erstellt und kopiert',
+            'copy_help' => 'Senden Sie diesen Link an den Zahler. Er gilt bis :date.',
+        ],
         'navigation_group' => 'Abrechnung',
         'calendar' => [
             'label' => 'Abrechnungskalender',
@@ -93,6 +146,11 @@ return [
             'deactivate' => 'Deaktivieren',
         ],
         'payment' => [
+            'refund' => 'Erstatten',
+            'refund_help' => 'Gibt das Geld über den Anbieter zurück und storniert die gekaufte Abdeckung.',
+            'refunded' => 'Zahlung erstattet.',
+            'failure_reason' => 'Grund des Fehlschlags',
+            'reference' => 'Referenz',
             'label' => 'Zahlung',
             'plural' => 'Zahlungen',
             'paid_on' => 'Bezahlt am',

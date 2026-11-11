@@ -2,7 +2,7 @@
 
 return [
     'enums' => [
-        'payment_status' => ['recorded' => 'En attente de confirmation', 'confirmed' => 'Confirmé', 'void' => 'Annulé'],
+        'payment_status' => ['recorded' => 'En attente de confirmation', 'pending' => 'En attente du prestataire', 'confirmed' => 'Confirmé', 'failed' => 'Échoué', 'refunded' => 'Remboursé', 'void' => 'Annulé'],
         'period_status' => ['pending' => 'Paiement en attente de confirmation', 'paid' => 'Payé', 'void' => 'Annulé'],
         'subscription_status' => ['active' => 'Actif', 'cancelled' => 'Résilié'],
         'duration_unit' => ['day' => 'Jour', 'week' => 'Semaine', 'month' => 'Mois', 'quarter' => 'Trimestre', 'year' => 'Année'],
@@ -15,9 +15,12 @@ return [
         ],
     ],
 
-    'providers' => ['offline' => 'Hors ligne (espèces, virement, mobile money)'],
+    'providers' => ['offline' => 'Hors ligne (espèces, virement, mobile money)', 'paystack' => 'Paystack (cartes, mobile money)'],
 
     'methods' => [
+        'online_card' => 'Carte bancaire',
+        'online_mobile_money' => 'Mobile money',
+        'online_bank_transfer' => 'Virement bancaire',
         'cash' => 'Espèces',
         'mobile_money' => 'Mobile money (envoyé à notre numéro)',
         'bank_transfer' => 'Virement bancaire',
@@ -33,6 +36,15 @@ return [
     ],
 
     'errors' => [
+        'not_online' => 'Cette passerelle n’accepte pas les paiements en ligne.',
+        'price_not_in_plan' => 'Ce tarif n’appartient pas à cette formule.',
+        'calendar_price_offline_only' => 'Les tarifs par calendrier ne peuvent pour l’instant être enregistrés que par le personnel.',
+        'email_required' => 'Saisissez une adresse e-mail valide.',
+        'phone_required' => 'Saisissez un numéro de téléphone.',
+        'gateway_error' => 'Le prestataire de paiement est injoignable ou a refusé la demande. Veuillez réessayer.',
+        'omnipay_missing' => 'Les paiements en ligne nécessitent le paquet omnipay/common.',
+        'refund_not_supported' => 'Cette passerelle ne peut pas rembourser.',
+        'not_refundable' => 'Seuls les paiements confirmés peuvent être remboursés.',
         'overlap' => ':billable est déjà couvert du :start au :end. Choisissez d’autres dates ou autorisez le chevauchement.',
         'instance_deleted' => 'Cette passerelle de paiement a été supprimée et ne peut pas être activée.',
         'not_awaiting_confirmation' => 'Ce paiement n’attend pas de confirmation.',
@@ -56,7 +68,48 @@ return [
         'amount_required' => 'Saisissez le montant reçu.',
     ],
 
+    'paystack' => [
+        'secret_key' => 'Clé secrète',
+        'secret_key_help' => 'Dans Paystack → Settings → API Keys & Webhooks (sk_live_… ou sk_test_…). Sert aussi à vérifier la signature des webhooks.',
+    ],
+
+    'pay' => [
+        'title' => 'Payer',
+        'for' => 'Pour :name',
+        'paid_until' => 'Payé actuellement jusqu’au :date.',
+        'no_gateways' => 'Aucun moyen de paiement n’est disponible pour le moment. Contactez-nous.',
+        'choose' => 'Comment souhaitez-vous payer ?',
+        'method' => 'Moyen de paiement',
+        'email' => 'E-mail (pour votre reçu)',
+        'phone' => 'Numéro de téléphone',
+        'submit' => 'Continuer vers le paiement',
+        'offline_no_instructions' => 'Demandez-nous comment payer de cette façon.',
+        'result_title' => 'Paiement',
+        'reference' => 'Référence : :reference',
+        'result' => [
+            'confirmed' => 'Paiement reçu. Merci !',
+            'failed' => 'Le paiement n’a pas abouti.',
+            'pending' => 'Nous attendons la confirmation du prestataire de paiement.',
+            'unchecked' => 'Nous n’avons pas pu vérifier auprès du prestataire pour l’instant ; nous réessaierons.',
+            'pending_help' => 'Validez la demande sur votre téléphone si vous en avez reçu une. Cette page affiche le résultat dès que le prestataire confirme.',
+        ],
+    ],
+
+    'console' => [
+        'reconciled' => 'Paiements en ligne vérifiés : :confirmed confirmés, :failed échoués, :pending encore en attente, :errors non vérifiables.',
+    ],
+
     'ui' => [
+        'pay_link' => [
+            'action' => 'Lien de paiement',
+            'heading' => 'Créer un lien de paiement pour :name',
+            'plan' => 'Formule',
+            'price' => 'Ce qui est payé',
+            'expires_days' => 'Valable (jours)',
+            'submit' => 'Créer le lien',
+            'done' => 'Lien de paiement créé et copié',
+            'copy_help' => 'Envoyez ce lien au payeur. Il est valable jusqu’au :date.',
+        ],
         'navigation_group' => 'Facturation',
         'calendar' => [
             'label' => 'Calendrier de facturation',
@@ -93,6 +146,11 @@ return [
             'deactivate' => 'Désactiver',
         ],
         'payment' => [
+            'refund' => 'Rembourser',
+            'refund_help' => 'Rend l’argent via le prestataire et annule la couverture achetée.',
+            'refunded' => 'Paiement remboursé.',
+            'failure_reason' => 'Raison de l’échec',
+            'reference' => 'Référence',
             'label' => 'Paiement',
             'plural' => 'Paiements',
             'paid_on' => 'Payé le',
