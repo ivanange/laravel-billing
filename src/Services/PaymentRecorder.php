@@ -8,7 +8,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Database\Eloquent\Model;
 use Ivanange\Billing\Contracts\Billable;
 use Ivanange\Billing\Contracts\ManualConfirmation;
 use Ivanange\Billing\Data\PaymentDraft;
@@ -95,7 +94,7 @@ class PaymentRecorder
 
         $seen = [];
         foreach ($draft->billables as $billable) {
-            if (! $billable instanceof Billable || ! $billable instanceof Model || ! $billable->exists) {
+            if (! $billable->exists) {
                 throw BillingException::because('not_billable');
             }
 

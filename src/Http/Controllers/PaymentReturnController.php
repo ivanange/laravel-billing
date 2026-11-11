@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ivanange\Billing\Http\Controllers;
 
+use Illuminate\Contracts\View\Factory as ViewFactory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Log;
 use Ivanange\Billing\Contracts\ChargesOnce;
@@ -19,6 +20,8 @@ use Ivanange\Billing\Services\OnlinePaymentSettler;
  */
 class PaymentReturnController
 {
+    public function __construct(private readonly ViewFactory $views) {}
+
     public function __invoke(string $reference, OnlinePaymentSettler $settler): View
     {
         $payment = Payment::query()->where('reference', $reference)->firstOrFail();
@@ -40,6 +43,6 @@ class PaymentReturnController
             }
         }
 
-        return view('billing::pay.result', ['payment' => $payment->refresh(), 'checked' => $checked]);
+        return $this->views->make('billing::pay.result', ['payment' => $payment->refresh(), 'checked' => $checked]);
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ivanange\Billing\Gateways\Omnipay\Paystack;
 
+use Omnipay\Common\Message\RequestInterface;
 use Omnipay\Paystack\Gateway;
 
 /**
@@ -14,7 +15,10 @@ use Omnipay\Paystack\Gateway;
  */
 class PaystackGateway extends Gateway
 {
-    public function purchase(array $parameters = [])
+    /**
+     * @param  array<string, mixed>  $parameters
+     */
+    public function purchase(array $parameters = []): RequestInterface
     {
         return $this->createRequest(PurchaseRequest::class, $parameters);
     }

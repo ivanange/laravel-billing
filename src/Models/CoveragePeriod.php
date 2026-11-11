@@ -52,6 +52,9 @@ class CoveragePeriod extends Model
         return $this->belongsTo(Subscription::class);
     }
 
+    /**
+     * @return MorphTo<Model, $this>
+     */
     public function billable(): MorphTo
     {
         return $this->morphTo();

@@ -15,6 +15,8 @@ use LogicException;
 /**
  * A price preset, e.g. "1 month – GHS 5" or "Season – GHS 20".
  *
+ * @property int $id
+ * @property int $plan_id
  * @property string $label
  * @property DurationUnit|null $duration_unit
  * @property int|null $duration_count

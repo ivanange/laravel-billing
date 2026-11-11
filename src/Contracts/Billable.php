@@ -6,8 +6,11 @@ namespace Ivanange\Billing\Contracts;
 
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\Plan;
+use Ivanange\Billing\Models\Subscription;
 
 /**
  * Anything that can be paid for: a farmer, a student, a company seat...
@@ -15,8 +18,14 @@ use Ivanange\Billing\Models\Plan;
  */
 interface Billable
 {
+    /**
+     * @return MorphMany<Subscription, covariant Model>
+     */
     public function subscriptions(): MorphMany;
 
+    /**
+     * @return MorphMany<CoveragePeriod, covariant Model>
+     */
     public function coveragePeriods(): MorphMany;
 
     public function isCovered(?DateTimeInterface $on = null, ?Plan $plan = null): bool;

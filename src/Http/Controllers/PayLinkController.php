@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ivanange\Billing\Http\Controllers;
 
+use Illuminate\Contracts\View\Factory as ViewFactory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,13 +30,14 @@ class PayLinkController
     public function __construct(
         private readonly PayLinks $links,
         private readonly GatewayCatalog $catalog,
+        private readonly ViewFactory $views,
     ) {}
 
     public function show(Request $request): View
     {
         [$billable, $plan, $price] = $this->links->resolve($request);
 
-        return view('billing::pay.show', [
+        return $this->views->make('billing::pay.show', [
             'billable' => $billable,
             'plan' => $plan,
             'price' => $price,

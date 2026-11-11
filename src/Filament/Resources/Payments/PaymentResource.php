@@ -25,6 +25,7 @@ use Ivanange\Billing\Filament\Actions\VoidPaymentAction;
 use Ivanange\Billing\Filament\Concerns\GatedResource;
 use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\Payment;
+use Ivanange\Billing\Support\BillableName;
 use Ivanange\Billing\Support\Money;
 
 /**
@@ -156,7 +157,7 @@ class PaymentResource extends Resource
             Section::make(__('billing::billing.ui.payment.covers'))->schema([
                 RepeatableEntry::make('coveragePeriods')->hiddenLabel()->columns(4)->schema([
                     TextEntry::make('billable')->label(__('billing::billing.ui.payment.for'))
-                        ->formatStateUsing(fn (CoveragePeriod $record): string => $record->billable?->billingName() ?? '—'),
+                        ->formatStateUsing(fn (CoveragePeriod $record): string => BillableName::of($record->billable)),
                     TextEntry::make('starts_on')->label(__('billing::billing.ui.period.dates'))
                         ->formatStateUsing(fn (CoveragePeriod $record): string => $record->starts_on->isoFormat('ll').' – '.$record->ends_on->isoFormat('ll')),
                     TextEntry::make('amount')->label(__('billing::billing.ui.payment.amount'))

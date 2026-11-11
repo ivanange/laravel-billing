@@ -36,7 +36,7 @@ class RefundPaymentAction extends Action
             ->requiresConfirmation()
             ->modalDescription(__('billing::billing.ui.payment.refund_help'))
             ->visible(fn (Payment $record): bool => $record->status === PaymentStatus::Confirmed
-                && $record->gatewayInstance?->gateway() instanceof Refunds
+                && $record->gatewayInstance->gateway() instanceof Refunds
                 && Gate::allows('billing.void', $record))
             ->action(function (Payment $record, Action $action): void {
                 Gate::authorize('billing.void', $record);

@@ -56,11 +56,13 @@ final class RecordPaymentForm
     }
 
     /**
-     * @param  list<Model&Billable>  $billables
+     * @param  array<string, mixed>  $data
+     * @param  array<int, Model>  $billables
      */
     public static function handle(array $data, array $billables, Action $action): void
     {
         Gate::authorize('billing.record');
+        $billables = array_values(array_filter($billables, fn (Model $model): bool => $model instanceof Billable));
 
         try {
             $payment = app(PaymentRecorder::class)->record(self::draft($data, $billables), auth()->user());
@@ -86,6 +88,7 @@ final class RecordPaymentForm
     }
 
     /**
+     * @param  array<string, mixed>  $data
      * @param  list<Model&Billable>  $billables
      */
     public static function draft(array $data, array $billables): PaymentDraft
@@ -109,6 +112,9 @@ final class RecordPaymentForm
         );
     }
 
+    /**
+     * @param  array<string, mixed>  $data
+     */
     private static function term(array $data, Plan $plan): Term
     {
         if (($data['price_id'] ?? null) === self::CUSTOM) {

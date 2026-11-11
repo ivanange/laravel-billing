@@ -16,6 +16,7 @@ use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Payment;
 use LogicException;
+use Omnipay\Common\AbstractGateway;
 use Omnipay\Common\GatewayInterface;
 use Omnipay\Common\Http\PsrClient;
 use Omnipay\Common\Message\RedirectResponseInterface;
@@ -141,7 +142,7 @@ abstract class OmnipayProvider implements ChargesOnce, PaymentProvider, Refunds
     {
         $gateway = $this->gateway($instance);
 
-        if (! $gateway->supportsRefund()) {
+        if (! $gateway instanceof AbstractGateway || ! $gateway->supportsRefund()) {
             throw BillingException::because('refund_not_supported');
         }
 

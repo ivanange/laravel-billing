@@ -21,11 +21,17 @@ use Ivanange\Billing\Models\Subscription;
  */
 trait HasBilling
 {
+    /**
+     * @return MorphMany<Subscription, $this>
+     */
     public function subscriptions(): MorphMany
     {
         return $this->morphMany(Subscription::class, 'billable');
     }
 
+    /**
+     * @return MorphMany<CoveragePeriod, $this>
+     */
     public function coveragePeriods(): MorphMany
     {
         return $this->morphMany(CoveragePeriod::class, 'billable');
@@ -83,6 +89,8 @@ trait HasBilling
     /**
      * Dates are compared as start-of-day timestamps so the query behaves the
      * same on SQLite (dates stored as text with a time) and MySQL/Postgres.
+     *
+     * @param  Builder<CoveragePeriod>  $periods
      */
     public static function constrainToCovering(Builder $periods, ?DateTimeInterface $on, ?Plan $plan): void
     {
