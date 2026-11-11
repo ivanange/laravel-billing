@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ivanange\Billing\Tests\Feature\Online;
 
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -108,11 +109,42 @@ class NotchPayProviderTest extends TestCase
         $this->assertSame(5000, $payment->amount);
         $this->assertSame('trx.abc123', $payment->external_id);
 
-        Http::fake(["api.notchpay.co/payments/{$payment->reference}" => $this->transaction('complete')]);
+        // Verified with NotchPay's own reference stored at checkout.
+        Http::fake(['api.notchpay.co/payments/trx.abc123' => $this->transaction('complete')]);
         $this->get(route('billing.pay.return', $payment->reference))->assertOk();
 
         $this->assertSame(PaymentStatus::Confirmed, $payment->refresh()->status);
         $this->assertSame(5000, $payment->coveragePeriods()->sole()->amount);
+    }
+
+    public function test_verify_errors_are_errors_not_pending(): void
+    {
+        $instance = $this->notchpay();
+        foreach ([Http::response(['message' => 'Invalid API key'], 401), Http::response(['message' => 'Payment not found', 'code' => 404], 404), Http::response('<html>502</html>', 502)] as $answer) {
+            Http::fake(['api.notchpay.co/*' => $answer]);
+            try {
+                $this->provider()->verify($instance, 'BIL-X');
+                $this->fail('Expected a gateway error');
+            } catch (GatewayError $e) {
+                $this->assertStringContainsString('NotchPay verify failed', (string) $e->providerMessage);
+            }
+            $this->app->forgetInstance(Factory::class);
+            Http::clearResolvedInstances();
+        }
+    }
+
+    public function test_webhook_failure_events_fail_the_payment(): void
+    {
+        $instance = $this->notchpay();
+        $price = $this->monthlyPrice($this->plan(['currency' => 'XAF']), 5000);
+        Http::fake(['api.notchpay.co/payments' => $this->initialized()]);
+        app(OnlineCheckout::class)->start(new CheckoutRequest($this->member(), $price->plan, $price, $instance, NotchPayProvider::MTN, phone: '+237670000000'));
+        $payment = Payment::query()->sole();
+
+        $body = (string) json_encode(['type' => 'payment.expired', 'data' => ['reference' => 'trx.abc123', 'trxref' => $payment->reference, 'amount' => 5000, 'currency' => 'XAF']]);
+        $this->hook($instance, $body, hash_hmac('sha256', $body, 'hsk_test_cm'))->assertOk();
+
+        $this->assertSame(PaymentStatus::Failed, $payment->refresh()->status);
     }
 
     public function test_phone_is_required_for_notchpay(): void
@@ -174,7 +206,7 @@ class NotchPayProviderTest extends TestCase
         app(OnlineCheckout::class)->start(new CheckoutRequest($this->member(), $price->plan, $price, $this->notchpay(), NotchPayProvider::MTN, phone: '+237670000000'));
         $payment = Payment::query()->sole();
         Http::fake([
-            "api.notchpay.co/payments/{$payment->reference}" => $this->transaction('complete'),
+            'api.notchpay.co/payments/trx.abc123' => $this->transaction('complete'),
             'api.notchpay.co/refunds' => Http::response(['code' => 201, 'message' => 'Refund created', 'refund' => ['id' => 'ref_1', 'status' => 'pending']], 201),
         ]);
         $this->get(route('billing.pay.return', $payment->reference));
@@ -183,7 +215,7 @@ class NotchPayProviderTest extends TestCase
 
         $this->assertSame(PaymentStatus::Refunded, $payment->status);
         Http::assertSent(fn (HttpRequest $r): bool => $r->url() === 'https://api.notchpay.co/refunds'
-            && $r->header('X-Grant') === ['sk_test_cm'] && $r['payment'] === $payment->reference);
+            && $r->header('X-Grant') === ['sk_test_cm'] && $r['payment'] === 'trx.abc123');
     }
 
     private function hook(GatewayInstance $instance, string $body, string $signature): TestResponse

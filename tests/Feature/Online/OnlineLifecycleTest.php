@@ -108,7 +108,7 @@ class OnlineLifecycleTest extends TestCase
         $this->assertSame(PeriodStatus::Paid, $period->status);
         $this->assertTrue($period->starts_on->equalTo($paidUntil->addDay()));
         $this->assertTrue($member->paidUntil($plan)->equalTo($period->ends_on));
-        $this->assertSame('4099260516', $payment->external_id);
+        $this->assertSame('BIL-TEST', $payment->external_id, 'the id stored at checkout is kept');
         Event::assertDispatchedTimes(PaymentConfirmed::class, 1);
         Event::assertDispatchedTimes(CoverageExtended::class, 1);
     }

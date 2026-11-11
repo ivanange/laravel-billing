@@ -292,6 +292,12 @@ The Filament `PayLinkAction` generates a link and copies it to the clipboard.
 
 **Doc URLs** are cited in each class.
 
+**Verify is strict.** A non-2xx answer, a non-JSON answer, or one without a transaction raises `GatewayError`; it is never read as "pending". Example: Hubtel returns 403 when the server IP is not whitelisted. When a reconcile run gets an error, it does not abandon the payment; it reports the error.
+
+**NotchPay lookups** use NotchPay's own reference (`trx.…`, stored in `external_id` at checkout) when one exists. That reference is documented to work. The merchant's reference is the fallback.
+
+**Hubtel states.** Hubtel reports only `Paid`, `Unpaid` and `Refunded`. A declined Hubtel checkout therefore stays `pending` until the reconcile command abandons it.
+
 **Hubtel's status API only answers whitelisted server IPs.** This is an operational prerequisite, documented in the README.
 
 **Not documented by the providers, so handled defensively:**

@@ -31,6 +31,14 @@ class CompletePurchaseRequest extends AbstractRequest
     {
         $url = sprintf(self::URL, rawurlencode($this->getMerchantAccount()), rawurlencode((string) $this->getTransactionReference()));
 
-        return $this->response = new StatusResponse($this, $this->call('GET', $url));
+        $data = $this->call('GET', $url);
+
+        // 403 = this server's IP is not whitelisted by Hubtel; anything but a
+        // "0000" with data is an error, never "still pending".
+        if ((int) $data['httpStatus'] !== 200 || ($data['responseCode'] ?? null) !== '0000' || ! is_array($data['data'] ?? null)) {
+            throw new \RuntimeException(sprintf('Hubtel status check failed (HTTP %d, code %s)%s', $data['httpStatus'], is_scalar($data['responseCode'] ?? null) ? $data['responseCode'] : '-', (int) $data['httpStatus'] === 403 ? ': is this server IP whitelisted by Hubtel?' : ''));
+        }
+
+        return $this->response = new StatusResponse($this, $data);
     }
 }

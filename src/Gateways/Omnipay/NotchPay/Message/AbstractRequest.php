@@ -47,6 +47,11 @@ abstract class AbstractRequest extends BaseRequest
      */
     protected function call(string $method, string $path, ?array $body = null, bool $grant = false): array
     {
+        $this->validate('publicKey');
+        if ($grant) {
+            $this->validate('privateKey');
+        }
+
         $headers = array_filter([
             'Authorization' => (string) $this->getPublicKey(),
             'X-Grant' => $grant ? (string) $this->getPrivateKey() : null,

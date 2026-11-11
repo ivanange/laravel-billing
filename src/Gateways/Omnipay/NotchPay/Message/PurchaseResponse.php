@@ -57,7 +57,13 @@ class PurchaseResponse extends AbstractResponse implements RedirectResponseInter
     {
         $transaction = $this->data['transaction'] ?? null;
 
-        return is_array($transaction) && is_string($transaction['reference'] ?? null) ? $transaction['reference'] : null;
+        // The docs show "transaction" both as an object and as a bare id.
+        return match (true) {
+            is_string($transaction) && $transaction !== '' => $transaction,
+            is_array($transaction) && is_string($transaction['reference'] ?? null) => $transaction['reference'],
+            is_array($transaction) && is_string($transaction['id'] ?? null) => $transaction['id'],
+            default => null,
+        };
     }
 
     public function getMessage(): ?string

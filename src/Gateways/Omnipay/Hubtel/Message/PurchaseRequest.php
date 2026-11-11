@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ivanange\Billing\Gateways\Omnipay\Hubtel\Message;
 
+use Omnipay\Common\Exception\InvalidRequestException;
+
 /**
  * POST https://payproxyapi.hubtel.com/items/initiate
  *
@@ -44,7 +46,7 @@ class PurchaseRequest extends AbstractRequest
             'returnUrl' => $this->getReturnUrl(),
             'cancellationUrl' => $this->getParameter('cancelUrl') ?: $this->getReturnUrl(),
             'merchantAccountNumber' => $this->getMerchantAccount(),
-            'clientReference' => substr((string) $this->getTransactionReference(), 0, 32),
+            'clientReference' => $this->clientReference(),
             'payeeEmail' => $this->getParameter('email'),
             'payeeMobileNumber' => $this->getParameter('phone'),
         ], fn (mixed $value): bool => $value !== null && $value !== '');
@@ -56,6 +58,18 @@ class PurchaseRequest extends AbstractRequest
     public function sendData($data): PurchaseResponse
     {
         return $this->response = new PurchaseResponse($this, $this->call('POST', self::URL, $data));
+    }
+
+    /** Hubtel allows 32 characters; truncating would break the later status lookup. */
+    private function clientReference(): string
+    {
+        $reference = (string) $this->getTransactionReference();
+
+        if (strlen($reference) > 32) {
+            throw new InvalidRequestException('Hubtel client references are limited to 32 characters.');
+        }
+
+        return $reference;
     }
 
     private function cleanDescription(): string

@@ -81,9 +81,14 @@ abstract class OmnipayProvider implements ChargesOnce, PaymentProvider
             'description' => $intent->description,
             'email' => $intent->email,
             'phone' => $intent->phone,
-            'notifyUrl' => route('billing.webhooks', ['instance' => $instance->getKey()]),
             'metadata' => $intent->metadata,
         ], fn (mixed $value): bool => $value !== null && $value !== []);
+    }
+
+    /** The reference the provider knows the payment by, for refunds. */
+    protected function refundReference(Payment $payment): string
+    {
+        return (string) $payment->reference;
     }
 
     /**
@@ -149,7 +154,7 @@ abstract class OmnipayProvider implements ChargesOnce, PaymentProvider
         }
 
         $response = $this->send(fn (): RequestInterface => $gateway->refund(array_filter([
-            'transactionReference' => $payment->reference,
+            'transactionReference' => $this->refundReference($payment),
             'amountInteger' => $amount,
             'currency' => $payment->currency,
         ], fn (mixed $value): bool => $value !== null)));

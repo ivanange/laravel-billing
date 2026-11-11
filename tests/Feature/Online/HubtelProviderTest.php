@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Ivanange\Billing\Data\CheckoutRequest;
 use Ivanange\Billing\Data\PaymentIntent;
+use Ivanange\Billing\Enums\ChargeStatus;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Exceptions\GatewayError;
@@ -163,6 +164,24 @@ class HubtelProviderTest extends TestCase
         $bad->forceFill(['settings' => ['merchant_account' => '../../admin']])->save();
         $this->expectExceptionMessage('This payment gateway is not set up correctly.');
         app(HubtelProvider::class)->verify($bad, 'BIL-X');
+    }
+
+    public function test_a_non_whitelisted_ip_is_an_error_and_unpaid_or_refunded_map_correctly(): void
+    {
+        $instance = $this->hubtel();
+        Http::fake(['api-txnstatus.hubtel.com/*' => Http::sequence()
+            ->pushResponse(Http::response('<html>Forbidden</html>', 403))
+            ->pushResponse($this->txnStatus('Unpaid'))
+            ->pushResponse($this->txnStatus('Refunded'))]);
+
+        try {
+            app(HubtelProvider::class)->verify($instance, 'BIL-X');
+            $this->fail('Expected a gateway error');
+        } catch (GatewayError $e) {
+            $this->assertStringContainsString('whitelisted', (string) $e->providerMessage);
+        }
+        $this->assertSame(ChargeStatus::Pending, app(HubtelProvider::class)->verify($instance, 'BIL-X')->status);
+        $this->assertSame(ChargeStatus::Failed, app(HubtelProvider::class)->verify($instance, 'BIL-X')->status);
     }
 
     public function test_refunds_are_not_offered_for_hubtel(): void

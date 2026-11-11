@@ -38,6 +38,7 @@ class KompassDryRunTest extends TestCase
             $t->char('currency', 3);
             $t->integer('amount_cents');
             $t->unsignedTinyInteger('anchor_day');
+            $t->softDeletes();
         });
         Schema::create('subscription_billing_cycles', function (Blueprint $t): void {
             $t->id();
@@ -58,11 +59,13 @@ class KompassDryRunTest extends TestCase
             ['user_id' => 1, 'payer_user_id' => null, 'payment_driver_id' => 1, 'status' => 'active', 'currency' => 'EUR', 'amount_cents' => 8400, 'anchor_day' => 31],
             ['user_id' => 2, 'payer_user_id' => 3, 'payment_driver_id' => 2, 'status' => 'active', 'currency' => 'EUR', 'amount_cents' => 10000, 'anchor_day' => 1],
         ]);
+        DB::table('subscriptions')->insert(['user_id' => 9, 'payer_user_id' => null, 'payment_driver_id' => 1, 'status' => 'cancelled', 'currency' => 'USD', 'amount_cents' => 999, 'anchor_day' => 1, 'deleted_at' => now()]);
         DB::table('subscription_billing_cycles')->insert([
             ['subscription_id' => 1, 'period_start' => '2026-01-31', 'period_end' => '2026-02-27', 'amount_cents' => 8400, 'currency' => 'EUR', 'status' => 'paid'],
             ['subscription_id' => 1, 'period_start' => '2026-02-28', 'period_end' => '2026-03-30', 'amount_cents' => 8400, 'currency' => 'EUR', 'status' => 'overdue'],
             ['subscription_id' => 2, 'period_start' => '2026-01-01', 'period_end' => '2026-01-31', 'amount_cents' => 10000, 'currency' => 'EUR', 'status' => 'paid'],
             ['subscription_id' => 2, 'period_start' => '2026-01-15', 'period_end' => '2026-02-14', 'amount_cents' => 10000, 'currency' => 'EUR', 'status' => 'waived'],
+            ['subscription_id' => 3, 'period_start' => '2026-01-01', 'period_end' => '2026-01-31', 'amount_cents' => 999, 'currency' => 'USD', 'status' => 'paid'],
         ]);
     }
 
@@ -70,12 +73,13 @@ class KompassDryRunTest extends TestCase
     {
         $report = app(KompassInspector::class)->report();
 
-        $this->assertSame(['offline', null, null], array_column($report['drivers'], 'provider'));
+        $this->assertSame(['offline', 'offline', 'offline'], array_column($report['drivers'], 'provider'));
         $this->assertSame(['paypal'], $report['duplicates_active']);
         $this->assertSame(1, $report['subscriptions_without_payer']);
-        $this->assertSame(['paid' => 2, 'overdue' => 1, 'waived' => 1], $report['cycles']);
+        $this->assertSame(['overdue' => 1, 'paid' => 2, 'waived' => 1], $report['cycles'], 'the soft-deleted subscription is left out');
         $this->assertSame(2, $report['payments_to_create']);
-        $this->assertSame(['EUR 8400 / month', 'EUR 10000 / month'], $report['plans_to_create']);
+        $this->assertSame(['EUR 84.00 / month', 'EUR 100.00 / month'], $report['plans_to_create']);
+        $this->assertSame(['EUR'], $report['currencies']);
         $this->assertSame(1, $report['overlapping_cycles']);
     }
 

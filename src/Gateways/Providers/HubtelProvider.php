@@ -103,7 +103,8 @@ class HubtelProvider extends OmnipayProvider implements ReceivesWebhooks
         $parameters = parent::purchaseParameters($instance, $intent);
         unset($parameters['metadata']);
 
-        return $parameters;
+        // Hubtel posts its callback here: this instance's webhook URL.
+        return $parameters + ['notifyUrl' => route('billing.webhooks', ['instance' => $instance->getKey()])];
     }
 
     protected function resultFromVerify(string $reference, ResponseInterface $response): ChargeResult

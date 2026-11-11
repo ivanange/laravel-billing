@@ -139,7 +139,8 @@ class OnlinePaymentSettler
     private function confirm(Payment $payment, ChargeResult $result): array
     {
         $payment->forceFill([
-            'external_id' => $result->externalId ?? $payment->external_id,
+            // Keep the id stored at checkout: later lookups (webhooks, refunds) use it.
+            'external_id' => $payment->external_id ?? $result->externalId,
             'paid_on' => CarbonImmutable::today(),
             'failed_at' => null,
             'failure_reason' => null,

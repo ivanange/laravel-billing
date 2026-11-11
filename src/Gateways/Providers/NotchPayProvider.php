@@ -97,7 +97,7 @@ class NotchPayProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
     protected function purchaseParameters(GatewayInstance $instance, PaymentIntent $intent): array
     {
         $parameters = parent::purchaseParameters($instance, $intent);
-        unset($parameters['metadata'], $parameters['notifyUrl']);
+        unset($parameters['metadata']);
 
         return $parameters + ['channel' => self::CHANNELS[$intent->method] ?? null];
     }
@@ -119,9 +119,44 @@ class NotchPayProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
             reference: $reference,
             amount: $this->intOrNull($transaction['amount'] ?? null),
             currency: $this->stringOrNull($transaction['currency'] ?? null),
-            externalId: $this->stringOrNull($transaction['id'] ?? null),
+            externalId: $this->providerReference($transaction, $reference),
             message: $response->getMessage(),
         );
+    }
+
+    /**
+     * NotchPay's own reference (trx.…) when it differs from ours, else its id.
+     *
+     * @param  array<string, mixed>  $transaction
+     */
+    private function providerReference(array $transaction, string $ours): ?string
+    {
+        $theirs = $this->stringOrNull($transaction['reference'] ?? null);
+
+        return $theirs !== null && $theirs !== $ours ? $theirs : $this->stringOrNull($transaction['id'] ?? null);
+    }
+
+    /**
+     * Ask NotchPay with its own reference (trx.…) when we stored one at
+     * checkout: that one is documented to work, while lookups by the
+     * merchant's reference are not. The result keeps OUR reference.
+     */
+    public function verify(GatewayInstance $instance, string $reference): ChargeResult
+    {
+        $stored = Payment::query()
+            ->where('gateway_instance_id', $instance->getKey())
+            ->where('reference', $reference)
+            ->value('external_id');
+        $lookup = is_string($stored) && str_starts_with($stored, 'trx.') ? $stored : $reference;
+
+        $result = parent::verify($instance, $lookup);
+
+        return new ChargeResult($result->status, $reference, $result->amount, $result->currency, $result->externalId, $result->message);
+    }
+
+    protected function refundReference(Payment $payment): string
+    {
+        return $payment->external_id !== null && str_starts_with($payment->external_id, 'trx.') ? $payment->external_id : (string) $payment->reference;
     }
 
     protected function resultFromRefund(Payment $payment, ResponseInterface $response): ChargeResult
@@ -170,7 +205,7 @@ class NotchPayProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
             reference: $reference,
             amount: $this->intOrNull($data['amount'] ?? null),
             currency: $this->stringOrNull($data['currency'] ?? null),
-            externalId: $this->stringOrNull($data['id'] ?? null),
+            externalId: $this->providerReference($data, $reference),
         );
     }
 }

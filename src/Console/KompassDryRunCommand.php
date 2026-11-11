@@ -26,7 +26,7 @@ class KompassDryRunCommand extends Command
 
         $this->table(['Kompass driver', 'Type', 'Active', 'Deleted', 'Becomes'], array_map(fn (array $d): array => [
             "#{$d['id']} ".$this->clean($d['name']), $this->clean($d['type']), $d['active'] ? 'yes' : 'no', $d['deleted'] ? 'yes' : 'no',
-            $d['provider'] ?? 'not migrated (no provider yet)',
+            trim(($d['provider'] ?? '—').' '.($d['note'] === null ? '' : '('.$d['note'].')')),
         ], $report['drivers']));
 
         $this->table(['Item', 'Count'], [
