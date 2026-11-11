@@ -2,7 +2,7 @@
 
 return [
     'enums' => [
-        'payment_status' => ['recorded' => 'En attente de confirmation', 'pending' => 'En attente du prestataire', 'confirmed' => 'Confirmé', 'failed' => 'Échoué', 'refunded' => 'Remboursé', 'void' => 'Annulé'],
+        'payment_status' => ['recorded' => 'En attente de confirmation', 'pending' => 'En attente du prestataire', 'confirmed' => 'Confirmé', 'failed' => 'Échoué', 'refunding' => 'Remboursement en cours', 'refunded' => 'Remboursé', 'void' => 'Annulé'],
         'period_status' => ['pending' => 'Paiement en attente de confirmation', 'paid' => 'Payé', 'void' => 'Annulé'],
         'subscription_status' => ['active' => 'Actif', 'cancelled' => 'Résilié'],
         'duration_unit' => ['day' => 'Jour', 'week' => 'Semaine', 'month' => 'Mois', 'quarter' => 'Trimestre', 'year' => 'Année'],

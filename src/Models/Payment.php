@@ -33,6 +33,7 @@ use Ivanange\Billing\Support\Money;
  * @property Carbon|null $created_at
  * @property string|null $external_id
  * @property string|null $failure_reason
+ * @property CarbonImmutable|null $failed_at
  * @property array<string, mixed>|null $meta
  * @property GatewayInstance $gatewayInstance
  */

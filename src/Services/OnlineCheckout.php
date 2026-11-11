@@ -17,6 +17,7 @@ use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Gateways\Omnipay\OmnipayProvider;
 use Ivanange\Billing\Models\Payment;
+use Throwable;
 
 /**
  * Starts a hosted online payment: stores a pending Payment (no cover yet)
@@ -33,10 +34,10 @@ class OnlineCheckout
 
         try {
             $started = $provider->start($request->gateway, $this->intent($request, $payment));
-        } catch (GatewayError $e) {
+        } catch (Throwable $e) {
             $this->markStartFailed($payment, $e);
 
-            throw $e;
+            throw $e instanceof BillingException ? $e : GatewayError::from($e->getMessage(), $e);
         }
 
         if ($started->externalId !== null) {
@@ -98,6 +99,10 @@ class OnlineCheckout
                 'billable_id' => $request->billable->getKey(),
                 'plan_id' => $request->plan->getKey(),
                 'plan_price_id' => $request->price->getKey(),
+                // Snapshot: what this payment buys, fixed at checkout.
+                'duration_unit' => $request->price->duration_unit?->value,
+                'duration_count' => (int) $request->price->duration_count,
+                'price_label' => $request->price->label,
             ]],
         ]);
     }
@@ -113,11 +118,11 @@ class OnlineCheckout
             email: $request->email,
             phone: $request->phone,
             description: Str::limit($request->plan->name.' – '.$request->price->label, 100, ''),
-            metadata: ['payment_id' => $payment->getKey(), 'billable' => $request->billable->billingName()],
+            metadata: ['payment_id' => $payment->getKey()],
         );
     }
 
-    private function markStartFailed(Payment $payment, GatewayError $e): void
+    private function markStartFailed(Payment $payment, Throwable $e): void
     {
         $payment->forceFill([
             'status' => PaymentStatus::Failed,
@@ -128,7 +133,7 @@ class OnlineCheckout
         Log::warning('billing: checkout could not be started', [
             'payment_id' => $payment->getKey(),
             'gateway_instance_id' => $payment->gateway_instance_id,
-            'provider_message' => $e->providerMessage,
+            'provider_message' => $e instanceof GatewayError ? $e->providerMessage : $e::class,
         ]);
 
         event(new PaymentFailed($payment));

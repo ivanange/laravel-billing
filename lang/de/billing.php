@@ -2,7 +2,7 @@
 
 return [
     'enums' => [
-        'payment_status' => ['recorded' => 'Wartet auf Bestätigung', 'pending' => 'Wartet auf den Anbieter', 'confirmed' => 'Bestätigt', 'failed' => 'Fehlgeschlagen', 'refunded' => 'Erstattet', 'void' => 'Storniert'],
+        'payment_status' => ['recorded' => 'Wartet auf Bestätigung', 'pending' => 'Wartet auf den Anbieter', 'confirmed' => 'Bestätigt', 'failed' => 'Fehlgeschlagen', 'refunding' => 'Erstattung läuft', 'refunded' => 'Erstattet', 'void' => 'Storniert'],
         'period_status' => ['pending' => 'Zahlung wartet auf Bestätigung', 'paid' => 'Bezahlt', 'void' => 'Storniert'],
         'subscription_status' => ['active' => 'Aktiv', 'cancelled' => 'Gekündigt'],
         'duration_unit' => ['day' => 'Tag', 'week' => 'Woche', 'month' => 'Monat', 'quarter' => 'Quartal', 'year' => 'Jahr'],

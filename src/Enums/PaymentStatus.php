@@ -18,6 +18,9 @@ enum PaymentStatus: string
     /** Declined, abandoned, or the provider reported another amount/currency. No cover. */
     case Failed = 'failed';
 
+    /** A refund was sent to the provider; blocks a second one. Cover is unchanged until it completes. */
+    case Refunding = 'refunding';
+
     /** Money returned through the provider; its cover is void. */
     case Refunded = 'refunded';
     case Void = 'void';
@@ -29,7 +32,7 @@ enum PaymentStatus: string
      */
     public static function settled(): array
     {
-        return [self::Confirmed, self::Refunded, self::Void];
+        return [self::Confirmed, self::Refunding, self::Refunded, self::Void];
     }
 
     protected static function translationKey(): string

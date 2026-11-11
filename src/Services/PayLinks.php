@@ -54,13 +54,16 @@ class PayLinks
      */
     public function resolve(Request $request): array
     {
-        $type = (string) $request->query('billable', '');
+        $type = $request->query('billable');
+        $id = $request->query('id');
+        abort_unless(is_string($type) && is_scalar($id), 404);
+
         $class = Relation::getMorphedModel($type) ?? $type;
 
         abort_unless(is_a($class, Model::class, true) && is_a($class, Billable::class, true), 404);
 
         /** @var (Model&Billable)|null $billable */
-        $billable = $class::query()->find($request->query('id'));
+        $billable = $class::query()->find($id);
         $plan = Plan::query()->active()->find($request->query('plan'));
         $price = $plan?->prices()->whereKey($request->query('price'))->first();
 

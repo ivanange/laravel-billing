@@ -57,7 +57,7 @@ class PayLinkAction extends Action
             ->color('gray')
             ->modalHeading(fn (): string => __('billing::billing.ui.pay_link.heading', ['name' => $this->resolveBillable()?->billingName()]))
             ->modalSubmitActionLabel(__('billing::billing.ui.pay_link.submit'))
-            ->visible(fn (): bool => Gate::allows('billing.record'))
+            ->visible(fn (): bool => Gate::allows('billing.record', $this->resolveBillable()))
             ->schema(fn (): array => $this->fields())
             ->action(fn (array $data, Component $livewire, Action $action) => $this->generate($data, $livewire, $action));
     }
@@ -94,8 +94,8 @@ class PayLinkAction extends Action
      */
     private function generate(array $data, Component $livewire, Action $action): void
     {
-        Gate::authorize('billing.record');
         $billable = $this->resolveBillable();
+        Gate::authorize('billing.record', $billable);
         $plan = Plan::query()->active()->find($data['plan_id'] ?? null);
         $price = $plan?->prices()->find($data['price_id'] ?? null);
         abort_if($billable === null || $plan === null || $price === null, 404);

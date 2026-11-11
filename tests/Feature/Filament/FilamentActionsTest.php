@@ -7,6 +7,7 @@ namespace Ivanange\Billing\Tests\Feature\Filament;
 use DateTimeInterface;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Ivanange\Billing\Contracts\Billable;
 use Ivanange\Billing\Data\ChargeResult;
@@ -103,8 +104,21 @@ class FilamentActionsTest extends FilamentTestCase
         app(OnlinePaymentSettler::class)->settle($online, new ChargeResult(ChargeStatus::Succeeded, (string) $online->reference, 1500, 'GHS'));
         Http::fake(['api.paystack.co/refund' => Http::response(['status' => true, 'message' => 'Refund has been queued for processing', 'data' => ['id' => 1, 'amount' => 1500, 'currency' => 'GHS']])]);
 
+        Livewire::test(ViewPayment::class, ['record' => $online->id])->assertActionHidden('refundPayment');
+        Gate::define('billing.refund', fn (): bool => true);
         Livewire::test(ViewPayment::class, ['record' => $online->id])->callAction('refundPayment');
         $this->assertSame(PaymentStatus::Refunded, $online->refresh()->status);
+    }
+
+    public function test_pay_link_action_respects_the_record_ability_per_billable(): void
+    {
+        $allowed = $this->member('Allowed');
+        $denied = $this->member('Denied');
+        Gate::define('billing.record', fn ($user, $billable = null): bool => $billable?->name !== 'Denied');
+
+        Livewire::test(ListMembers::class)
+            ->assertActionVisible(TestAction::make('payLink')->table($allowed))
+            ->assertActionHidden(TestAction::make('payLink')->table($denied));
     }
 
     public function test_gateway_instances_create_with_provider_fields_and_activate(): void
