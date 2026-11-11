@@ -6,6 +6,7 @@ namespace Ivanange\Billing\Filament\Resources\Payments\Pages;
 
 use Filament\Resources\Pages\ViewRecord;
 use Ivanange\Billing\Filament\Actions\ConfirmPaymentAction;
+use Ivanange\Billing\Filament\Actions\RefundPaymentAction;
 use Ivanange\Billing\Filament\Actions\VoidPaymentAction;
 use Ivanange\Billing\Filament\Resources\Payments\PaymentResource;
 
@@ -15,6 +16,6 @@ class ViewPayment extends ViewRecord
 
     protected function getHeaderActions(): array
     {
-        return [ConfirmPaymentAction::make(), VoidPaymentAction::make()];
+        return [ConfirmPaymentAction::make(), RefundPaymentAction::make(), VoidPaymentAction::make()];
     }
 }

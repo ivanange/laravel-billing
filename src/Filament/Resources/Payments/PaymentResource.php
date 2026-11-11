@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Model;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Enums\PeriodStatus;
 use Ivanange\Billing\Filament\Actions\ConfirmPaymentAction;
+use Ivanange\Billing\Filament\Actions\RefundPaymentAction;
 use Ivanange\Billing\Filament\Actions\VoidPaymentAction;
 use Ivanange\Billing\Filament\Concerns\GatedResource;
 use Ivanange\Billing\Models\CoveragePeriod;
@@ -114,7 +115,7 @@ class PaymentResource extends Resource
                 SelectFilter::make('status')->label(__('billing::billing.ui.payment.status'))->options(PaymentStatus::options()),
                 SelectFilter::make('gateway_instance_id')->label(__('billing::billing.ui.gateway.label'))->relationship('gatewayInstance', 'name'),
             ])
-            ->recordActions([ViewAction::make(), ConfirmPaymentAction::make(), VoidPaymentAction::make()]);
+            ->recordActions([ViewAction::make(), ConfirmPaymentAction::make(), RefundPaymentAction::make(), VoidPaymentAction::make()]);
     }
 
     public static function infolist(Schema $schema): Schema
@@ -132,6 +133,11 @@ class PaymentResource extends Resource
                 TextEntry::make('recorder.name')->label(__('billing::billing.ui.payment.recorded_by'))->placeholder('—'),
                 TextEntry::make('confirmer.name')->label(__('billing::billing.ui.payment.confirmed_by'))->placeholder('—'),
                 TextEntry::make('confirmed_at')->label(__('billing::billing.ui.payment.confirmed_at'))->dateTime()->placeholder('—'),
+                TextEntry::make('failure_reason')->label(__('billing::billing.ui.payment.failure_reason'))
+                    ->visible(fn (Payment $record): bool => $record->status === PaymentStatus::Failed)
+                    ->formatStateUsing(fn (string $state): string => __('billing::billing.failure.'.$state)),
+                TextEntry::make('external_id')->label(__('billing::billing.ui.payment.reference'))
+                    ->visible(fn (Payment $record): bool => $record->isOnline())->placeholder('—'),
                 TextEntry::make('notes')->label(__('billing::billing.ui.record.notes'))->placeholder('—')->columnSpanFull(),
                 TextEntry::make('proof_path')
                     ->label(__('billing::billing.ui.record.proof'))

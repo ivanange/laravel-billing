@@ -36,6 +36,7 @@ return [
     ],
 
     'errors' => [
+        'not_offline' => 'Une passerelle en ligne ne peut pas servir à enregistrer un paiement à la main.',
         'not_online' => 'Cette passerelle n’accepte pas les paiements en ligne.',
         'price_not_in_plan' => 'Ce tarif n’appartient pas à cette formule.',
         'calendar_price_offline_only' => 'Les tarifs par calendrier ne peuvent pour l’instant être enregistrés que par le personnel.',
@@ -93,6 +94,13 @@ return [
             'unchecked' => 'Nous n’avons pas pu vérifier auprès du prestataire pour l’instant ; nous réessaierons.',
             'pending_help' => 'Validez la demande sur votre téléphone si vous en avez reçu une. Cette page affiche le résultat dès que le prestataire confirme.',
         ],
+    ],
+
+    'failure' => [
+        'start_failed' => 'Le prestataire a refusé de démarrer le paiement',
+        'declined' => 'Refusé par le prestataire',
+        'amount_mismatch' => 'Le prestataire a indiqué un autre montant ou une autre devise',
+        'abandoned' => 'Non finalisé à temps',
     ],
 
     'console' => [

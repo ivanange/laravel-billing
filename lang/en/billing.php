@@ -36,6 +36,7 @@ return [
     ],
 
     'errors' => [
+        'not_offline' => 'Online gateways cannot be used to record a payment by hand.',
         'not_online' => 'This gateway does not take online payments.',
         'price_not_in_plan' => 'This price does not belong to the plan.',
         'calendar_price_offline_only' => 'Calendar prices can only be recorded by staff for now.',
@@ -93,6 +94,13 @@ return [
             'unchecked' => 'We could not check with the payment provider just now; we will keep trying.',
             'pending_help' => 'Approve the prompt on your phone if you got one. This page shows the result once the provider confirms.',
         ],
+    ],
+
+    'failure' => [
+        'start_failed' => 'The provider refused to start the payment',
+        'declined' => 'Declined by the provider',
+        'amount_mismatch' => 'The provider reported a different amount or currency',
+        'abandoned' => 'Not completed in time',
     ],
 
     'console' => [

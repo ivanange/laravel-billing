@@ -10,6 +10,7 @@ use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Ivanange\Billing\Contracts\Billable;
+use Ivanange\Billing\Contracts\ManualConfirmation;
 use Ivanange\Billing\Data\PaymentDraft;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Events\PaymentRecorded;
@@ -116,6 +117,10 @@ class PaymentRecorder
 
         if (! $gateway->is_active || $gateway->trashed()) {
             throw BillingException::because('gateway_inactive');
+        }
+
+        if (! $gateway->gateway() instanceof ManualConfirmation) {
+            throw BillingException::because('not_offline');
         }
 
         if (! $gateway->offersMethod($draft->method)) {

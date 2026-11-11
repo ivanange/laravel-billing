@@ -36,6 +36,7 @@ return [
     ],
 
     'errors' => [
+        'not_offline' => 'Online-Gateways können nicht für manuell erfasste Zahlungen verwendet werden.',
         'not_online' => 'Dieses Zahlungs-Gateway nimmt keine Online-Zahlungen an.',
         'price_not_in_plan' => 'Dieser Preis gehört nicht zum Tarif.',
         'calendar_price_offline_only' => 'Kalenderpreise können vorerst nur vom Personal erfasst werden.',
@@ -93,6 +94,13 @@ return [
             'unchecked' => 'Wir konnten gerade nicht beim Zahlungsanbieter nachfragen; wir versuchen es weiter.',
             'pending_help' => 'Bestätigen Sie die Anfrage auf Ihrem Telefon, falls Sie eine erhalten haben. Diese Seite zeigt das Ergebnis, sobald der Anbieter bestätigt.',
         ],
+    ],
+
+    'failure' => [
+        'start_failed' => 'Der Anbieter hat den Start der Zahlung abgelehnt',
+        'declined' => 'Vom Anbieter abgelehnt',
+        'amount_mismatch' => 'Der Anbieter meldete einen anderen Betrag oder eine andere Währung',
+        'abandoned' => 'Nicht rechtzeitig abgeschlossen',
     ],
 
     'console' => [
