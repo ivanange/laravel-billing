@@ -18,6 +18,9 @@ class BillingServiceProvider extends ServiceProvider
     /** Abilities the app may define itself; defaults come from billing.authorize_by_default. */
     public const ABILITIES = ['billing.view', 'billing.record', 'billing.confirm', 'billing.void', 'billing.manage'];
 
+    /** Abilities that move money: denied unless the app defines them (or billing.authorize_refunds_by_default is true). */
+    public const MONEY_ABILITIES = ['billing.refund'];
+
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/billing.php', 'billing');
@@ -57,8 +60,15 @@ class BillingServiceProvider extends ServiceProvider
 
     private function defineRateLimiters(): void
     {
-        RateLimiter::for('billing-webhooks', fn (Request $request): Limit => Limit::perMinute((int) config('billing.webhooks.rate_limit', 120))->by('billing-webhooks|'.$request->ip()));
-        RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute((int) config('billing.pay_links.rate_limit', 30))->by('billing-pay|'.$request->ip()));
+        // Keyed by instance AND ip: behind an untrusted proxy every caller
+        // shares one ip, and noise on one instance's URL must not starve another.
+        RateLimiter::for('billing-webhooks', fn (Request $request): Limit => Limit::perMinute((int) config('billing.webhooks.rate_limit', 120))
+            ->by('billing-webhooks|'.$request->route('instance').'|'.$request->ip()));
+        RateLimiter::for('billing-pay', fn (Request $request): array => [
+            Limit::perMinute((int) config('billing.pay_links.rate_limit', 30))->by('billing-pay|'.$request->ip()),
+            // Each return-page hit may call the provider: also cap per reference.
+            Limit::perMinute(10)->by('billing-pay-ref|'.(string) $request->route('reference')),
+        ]);
     }
 
     /**
@@ -70,6 +80,12 @@ class BillingServiceProvider extends ServiceProvider
         foreach (self::ABILITIES as $ability) {
             if (! Gate::has($ability)) {
                 Gate::define($ability, fn ($user): bool => (bool) config('billing.authorize_by_default', true));
+            }
+        }
+
+        foreach (self::MONEY_ABILITIES as $ability) {
+            if (! Gate::has($ability)) {
+                Gate::define($ability, fn ($user): bool => (bool) config('billing.authorize_refunds_by_default', false));
             }
         }
     }

@@ -16,11 +16,18 @@ use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\Payment;
 use Ivanange\Billing\Models\Subscription;
+use Throwable;
 
 /**
  * Full refund through the payment's own gateway instance, then the cover
- * it bought is voided. Partial refunds are not supported yet (they would
- * need a rule for which days to give back).
+ * it bought is voided.
+ *
+ * The payment is moved to "refunding" under a row lock BEFORE the provider
+ * is called, so two clicks or two admins can never send two refunds. If
+ * the provider refuses, it goes back to "confirmed"; if the process dies
+ * after the provider call, it stays "refunding" for a person to check.
+ * Partial refunds are not supported (they need a rule for which days to
+ * give back).
  */
 class PaymentRefunder
 {
@@ -38,21 +45,45 @@ class PaymentRefunder
             throw BillingException::because('refund_not_supported');
         }
 
-        if ($payment->status !== PaymentStatus::Confirmed) {
-            throw BillingException::because('not_refundable');
+        $this->transition($payment, PaymentStatus::Confirmed, PaymentStatus::Refunding);
+
+        try {
+            $result = $provider->refund($instance, $payment);
+        } catch (Throwable $e) {
+            $this->transition($payment, PaymentStatus::Refunding, PaymentStatus::Confirmed);
+
+            throw $e;
         }
 
-        $result = $provider->refund($instance, $payment);
         if (! $result->succeeded()) {
+            $this->transition($payment, PaymentStatus::Refunding, PaymentStatus::Confirmed);
+
             throw GatewayError::from($result->message);
         }
 
-        $this->db->transaction(function () use ($payment, $by): void {
+        $this->complete($payment, $by);
+        event(new PaymentRefunded($payment));
+
+        return $payment;
+    }
+
+    private function transition(Payment $payment, PaymentStatus $from, PaymentStatus $to): void
+    {
+        $this->db->transaction(function () use ($payment, $from, $to): void {
             $locked = Payment::query()->whereKey($payment->getKey())->lockForUpdate()->firstOrFail();
-            if ($locked->status !== PaymentStatus::Confirmed) {
+            if ($locked->status !== $from) {
                 throw BillingException::because('not_refundable');
             }
 
+            $locked->forceFill(['status' => $to])->save();
+            $payment->setRawAttributes($locked->getAttributes(), true);
+        });
+    }
+
+    private function complete(Payment $payment, ?Authenticatable $by): void
+    {
+        $this->db->transaction(function () use ($payment, $by): void {
+            $locked = Payment::query()->whereKey($payment->getKey())->lockForUpdate()->firstOrFail();
             $locked->forceFill([
                 'status' => PaymentStatus::Refunded,
                 'refunded_at' => CarbonImmutable::now(),
@@ -68,9 +99,5 @@ class PaymentRefunder
 
             $payment->setRawAttributes($locked->getAttributes(), true);
         });
-
-        event(new PaymentRefunded($payment));
-
-        return $payment;
     }
 }

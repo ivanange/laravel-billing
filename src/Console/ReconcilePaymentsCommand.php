@@ -11,6 +11,7 @@ use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Models\Payment;
 use Ivanange\Billing\Services\OnlinePaymentSettler;
+use Throwable;
 
 /**
  * Catches online payments whose callback and webhook never arrived:
@@ -48,15 +49,21 @@ class ReconcilePaymentsCommand extends Command
 
     private function reconcile(Payment $payment, OnlinePaymentSettler $settler, CarbonImmutable $abandonBefore): string
     {
-        $instance = $payment->gatewayInstance;
-        $provider = $instance->gateway();
+        // One broken payment (unregistered provider, provider outage, bad
+        // data) must not stop the others from being reconciled.
+        try {
+            $instance = $payment->gatewayInstance;
+            $provider = $instance->gateway();
 
-        if ($provider instanceof ChargesOnce) {
-            try {
+            if ($provider instanceof ChargesOnce) {
                 $settler->settle($payment, $provider->verify($instance, (string) $payment->reference));
-            } catch (GatewayError) {
-                return 'errors';
             }
+        } catch (Throwable $e) {
+            if (! $e instanceof GatewayError) {
+                report($e);
+            }
+
+            return 'errors';
         }
 
         if ($payment->status === PaymentStatus::Pending && $payment->created_at <= $abandonBefore) {

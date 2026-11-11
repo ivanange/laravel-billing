@@ -90,4 +90,10 @@ return [
     */
     'authorize_by_default' => true,
 
+    /*
+    | billing.refund sends money back through a provider, so it is denied
+    | unless your app defines the ability (recommended) or you set this.
+    */
+    'authorize_refunds_by_default' => false,
+
 ];

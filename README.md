@@ -90,6 +90,10 @@ composer require omnipay/common paystackhq/omnipay-paystack
 
 **HTTP calls.** Calls to providers go through Laravel's `Http` client, so `Http::fake()` works in your tests.
 
+**Rate limits** for webhooks and pay pages are keyed by client IP. Behind a load balancer, configure Laravel's trusted proxies so `$request->ip()` is the real client.
+
+**Refund events.** Refunds started from the provider's dashboard are not synced yet; refund from Filament instead.
+
 **Live sandbox test.** Run it with `PAYSTACK_TEST_SECRET=sk_test_… vendor/bin/phpunit tests/Live`. It is skipped when the key is not set.
 
 ## Events
@@ -98,7 +102,9 @@ composer require omnipay/common paystackhq/omnipay-paystack
 
 ## Authorization
 
-Gate abilities `billing.view`, `billing.record`, `billing.confirm`, `billing.void` and `billing.manage`. They allow any signed-in user unless your app defines them (or you set `billing.authorize_by_default` to `false`).
+Gate abilities `billing.view`, `billing.record`, `billing.confirm`, `billing.void` and `billing.manage` allow any signed-in user unless your app defines them, or you set `billing.authorize_by_default` to `false`.
+
+`billing.refund` sends money back, so it is **denied** unless your app defines it. `billing.record` receives the billable as its argument, so you can scope pay links per record or tenant.
 
 ## Configuration
 

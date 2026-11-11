@@ -33,7 +33,7 @@ class VoidPaymentAction extends Action
             ->schema([
                 Textarea::make('reason')->label(__('billing::billing.ui.payment.void_reason'))->required()->maxLength(1000),
             ])
-            ->visible(fn (Payment $record): bool => ! in_array($record->status, [PaymentStatus::Void, PaymentStatus::Refunded], true) && Gate::allows('billing.void', $record))
+            ->visible(fn (Payment $record): bool => ! in_array($record->status, [PaymentStatus::Void, PaymentStatus::Refunding, PaymentStatus::Refunded], true) && Gate::allows('billing.void', $record))
             ->action(function (Payment $record, array $data, Action $action): void {
                 Gate::authorize('billing.void', $record);
 

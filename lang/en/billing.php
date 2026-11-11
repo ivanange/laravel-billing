@@ -2,7 +2,7 @@
 
 return [
     'enums' => [
-        'payment_status' => ['recorded' => 'Awaiting confirmation', 'pending' => 'Waiting for the provider', 'confirmed' => 'Confirmed', 'failed' => 'Failed', 'refunded' => 'Refunded', 'void' => 'Void'],
+        'payment_status' => ['recorded' => 'Awaiting confirmation', 'pending' => 'Waiting for the provider', 'confirmed' => 'Confirmed', 'failed' => 'Failed', 'refunding' => 'Refund in progress', 'refunded' => 'Refunded', 'void' => 'Void'],
         'period_status' => ['pending' => 'Awaiting payment confirmation', 'paid' => 'Paid', 'void' => 'Void'],
         'subscription_status' => ['active' => 'Active', 'cancelled' => 'Cancelled'],
         'duration_unit' => ['day' => 'Day', 'week' => 'Week', 'month' => 'Month', 'quarter' => 'Quarter', 'year' => 'Year'],

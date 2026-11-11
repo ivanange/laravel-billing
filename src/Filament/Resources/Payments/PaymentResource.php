@@ -184,7 +184,7 @@ class PaymentResource extends Resource
             PaymentStatus::Recorded, PaymentStatus::Pending => 'warning',
             PaymentStatus::Confirmed => 'success',
             PaymentStatus::Failed => 'danger',
-            PaymentStatus::Refunded => 'info',
+            PaymentStatus::Refunding, PaymentStatus::Refunded => 'info',
             PaymentStatus::Void => 'gray',
         };
     }
