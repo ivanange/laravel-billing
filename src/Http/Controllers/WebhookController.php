@@ -52,7 +52,7 @@ class WebhookController
 
         $payment = Payment::query()
             ->where('gateway_instance_id', $gateway->id)
-            ->where('reference', $result->reference)
+            ->where(fn ($query) => $query->where('reference', $result->reference)->orWhere('external_id', $result->reference))
             ->first();
 
         if ($payment === null) {

@@ -42,7 +42,7 @@ class OnlinePaymentSettler
 
     public function settle(Payment $payment, ChargeResult $result): Payment
     {
-        if ($result->reference !== $payment->reference) {
+        if (! in_array($result->reference, array_filter([$payment->reference, $payment->external_id]), true)) {
             Log::warning('billing: result reference does not match payment', ['payment_id' => $payment->getKey()]);
 
             return $payment;

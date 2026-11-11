@@ -7,7 +7,6 @@ namespace Ivanange\Billing\Gateways\Omnipay;
 use Illuminate\Http\Client\Factory;
 use Ivanange\Billing\Contracts\ChargesOnce;
 use Ivanange\Billing\Contracts\PaymentProvider;
-use Ivanange\Billing\Contracts\Refunds;
 use Ivanange\Billing\Data\ChargeResult;
 use Ivanange\Billing\Data\PaymentIntent;
 use Ivanange\Billing\Data\StartedCharge;
@@ -33,9 +32,10 @@ use Throwable;
  * account never changes which keys verify or refund an older payment.
  *
  * A subclass declares the Omnipay gateway class, its fields and methods,
- * and how a verify response maps to a ChargeResult.
+ * and how a verify response maps to a ChargeResult. Subclasses whose
+ * driver can refund add `implements Refunds` (refund() is shared here).
  */
-abstract class OmnipayProvider implements ChargesOnce, PaymentProvider, Refunds
+abstract class OmnipayProvider implements ChargesOnce, PaymentProvider
 {
     /**
      * @return class-string<GatewayInterface>
@@ -80,6 +80,8 @@ abstract class OmnipayProvider implements ChargesOnce, PaymentProvider, Refunds
             'returnUrl' => $intent->returnUrl,
             'description' => $intent->description,
             'email' => $intent->email,
+            'phone' => $intent->phone,
+            'notifyUrl' => route('billing.webhooks', ['instance' => $instance->getKey()]),
             'metadata' => $intent->metadata,
         ], fn (mixed $value): bool => $value !== null && $value !== []);
     }

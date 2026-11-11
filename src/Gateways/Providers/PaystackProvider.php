@@ -6,6 +6,7 @@ namespace Ivanange\Billing\Gateways\Providers;
 
 use Illuminate\Http\Request;
 use Ivanange\Billing\Contracts\ReceivesWebhooks;
+use Ivanange\Billing\Contracts\Refunds;
 use Ivanange\Billing\Data\ChargeResult;
 use Ivanange\Billing\Data\PaymentIntent;
 use Ivanange\Billing\Enums\ChargeStatus;
@@ -25,7 +26,7 @@ use Omnipay\Common\Message\ResponseInterface;
  * @see https://paystack.com/docs/api/transaction/
  * @see https://paystack.com/docs/payments/webhooks/
  */
-class PaystackProvider extends OmnipayProvider implements ReceivesWebhooks
+class PaystackProvider extends OmnipayProvider implements ReceivesWebhooks, Refunds
 {
     public const CARD = 'card';
 

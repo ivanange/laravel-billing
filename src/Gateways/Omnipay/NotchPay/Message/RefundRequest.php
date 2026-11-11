@@ -20,8 +20,9 @@ class RefundRequest extends AbstractRequest
 
         return array_filter([
             'payment' => $this->getTransactionReference(),
-            'amount' => $this->getAmount() === null ? null : $this->getAmountInteger(),
-            'reason' => $this->getDescription() ?? 'Refund',
+            // Omnipay's docblocks say string, but unset parameters are null.
+            'amount' => $this->getParameter('amount') === null ? null : $this->getAmountInteger(),
+            'reason' => $this->getParameter('description') ?: 'Refund',
         ], fn (mixed $value): bool => $value !== null);
     }
 

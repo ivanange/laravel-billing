@@ -10,6 +10,8 @@ use Ivanange\Billing\BillingServiceProvider;
 use Ivanange\Billing\Data\PaymentDraft;
 use Ivanange\Billing\Enums\DurationUnit;
 use Ivanange\Billing\Gateways\GatewayActivation;
+use Ivanange\Billing\Gateways\Providers\HubtelProvider;
+use Ivanange\Billing\Gateways\Providers\NotchPayProvider;
 use Ivanange\Billing\Gateways\Providers\OfflineProvider;
 use Ivanange\Billing\Gateways\Providers\PaystackProvider;
 use Ivanange\Billing\Models\GatewayInstance;
@@ -36,7 +38,7 @@ abstract class TestCase extends Orchestra
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('k', 32)));
         $app['config']->set('database.default', 'testing');
         $app['config']->set('auth.providers.users.model', User::class);
-        $app['config']->set('billing.providers', [OfflineProvider::class, PaystackProvider::class]);
+        $app['config']->set('billing.providers', [OfflineProvider::class, PaystackProvider::class, NotchPayProvider::class, HubtelProvider::class]);
     }
 
     protected function defineDatabaseMigrations(): void
@@ -86,6 +88,35 @@ abstract class TestCase extends Orchestra
             'provider' => PaystackProvider::key(),
             'credentials' => ['secret_key' => $secret],
             'enabled_methods' => [PaystackProvider::CARD, PaystackProvider::MOBILE_MONEY],
+            'currencies' => ['GHS'],
+        ], $active);
+    }
+
+    /**
+     * @param  array<string, string>  $credentials
+     */
+    protected function notchpay(string $name = 'NotchPay Cameroun', array $credentials = [], bool $active = true): GatewayInstance
+    {
+        return $this->gateway([
+            'name' => $name,
+            'provider' => NotchPayProvider::key(),
+            'credentials' => $credentials + ['public_key' => 'pk_test_cm', 'private_key' => 'sk_test_cm', 'hash_key' => 'hsk_test_cm'],
+            'enabled_methods' => [NotchPayProvider::MTN, NotchPayProvider::ORANGE],
+            'currencies' => ['XAF'],
+        ], $active);
+    }
+
+    /**
+     * @param  array<string, string>  $credentials
+     */
+    protected function hubtel(string $name = 'Hubtel Ghana', array $credentials = [], bool $active = true): GatewayInstance
+    {
+        return $this->gateway([
+            'name' => $name,
+            'provider' => HubtelProvider::key(),
+            'credentials' => $credentials + ['api_id' => 'hubtel-id', 'api_key' => 'hubtel-key'],
+            'settings' => ['merchant_account' => '2017101'],
+            'enabled_methods' => [HubtelProvider::CHECKOUT],
             'currencies' => ['GHS'],
         ], $active);
     }
