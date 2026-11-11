@@ -10,7 +10,7 @@ Billing for Laravel apps that sell **time-based cover** (SMS subscriptions, scho
 - **Filament 5 plugin**: payments, subscriptions, plans with price presets, calendars, gateways, a *Record payment* action and a *Paid cover* relation manager.
 - **Translations** in English, French and German (`billing::billing.*`).
 
-Online gateways (through [Omnipay](https://github.com/thephpleague/omnipay) drivers) come in phase 2; see `docs/DESIGN.md`.
+- **Online payments** through [Omnipay](https://github.com/thephpleague/omnipay) drivers (Paystack: cards and Ghana mobile money), with signed webhooks, a self-service pay link and reconciliation. See `docs/DESIGN.md` §12.
 
 ## Install
 
@@ -66,9 +66,35 @@ app(PaymentRecorder::class)->record(new PaymentDraft(
 
 Rules enforced by the service: an active gateway that offers the method and currency, the plan accepts the billable, no overlapping cover (unless `allowOverlap`), no duplicate reference per gateway, required reference or proof when the gateway asks for it, and amount 0 only for `complimentary`.
 
+## Online payments (Paystack)
+
+```bash
+composer require omnipay/common paystackhq/omnipay-paystack
+```
+
+```php
+// config/billing.php
+'providers' => [OfflineProvider::class, PaystackProvider::class],
+```
+
+1. **Create the gateway.** In Filament, add a gateway with the *Paystack* provider. Paste the secret key (stored encrypted) and tick the methods (card, mobile money, bank transfer).
+2. **Point Paystack's webhook at that gateway.** Under Paystack → Settings → API Keys & Webhooks, set the URL to `https://your-app/billing/webhooks/{gateway id}`. Each gateway has its own URL, and its signature is checked with that gateway's own key.
+3. **Send pay links.** Use `PayLinkAction::make()` on your billable resource, or `app(PayLinks::class)->make($billable, $plan, $price)`. The payer gets a signed, expiring page: they pick a method, pay on Paystack and come back. The return page asks Paystack for the result; the page's query string is never trusted.
+4. **Schedule the reconciliation.** It catches payments whose callback and webhook never arrived:
+
+   ```php
+   Schedule::command('billing:reconcile-payments')->everyFifteenMinutes();
+   ```
+
+**How an online payment progresses.** It starts as `pending`, with no cover yet. It becomes `confirmed` only once the provider confirms the same reference, amount and currency; that is when the cover is created. Otherwise it ends `failed` (declined, abandoned or mismatched). A confirmed payment can then be `refunded`. Duplicate webhooks and callback/webhook races confirm a payment only once.
+
+**HTTP calls.** Calls to providers go through Laravel's `Http` client, so `Http::fake()` works in your tests.
+
+**Live sandbox test.** Run it with `PAYSTACK_TEST_SECRET=sk_test_… vendor/bin/phpunit tests/Live`. It is skipped when the key is not set.
+
 ## Events
 
-`PaymentRecorded`, `PaymentConfirmed`, `PaymentVoided`, `CoverageExtended`, `CoverageExpiring`, `CoverageLapsed`, `GatewayActivated`.
+`PaymentRecorded`, `PaymentConfirmed`, `PaymentFailed`, `PaymentRefunded`, `PaymentVoided`, `CoverageExtended`, `CoverageExpiring`, `CoverageLapsed`, `GatewayActivated`.
 
 ## Authorization
 
@@ -87,5 +113,7 @@ Publish with `php artisan vendor:publish --tag=billing-config`:
 
 ```bash
 composer install
-vendor/bin/phpunit
+vendor/bin/phpunit      # unit, feature, Filament panel; live sandbox tests skip without keys
+vendor/bin/pint --test
+composer analyse        # Larastan level 6
 ```
