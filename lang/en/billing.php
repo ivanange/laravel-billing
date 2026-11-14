@@ -46,6 +46,7 @@ return [
         'omnipay_missing' => 'Online payments need the omnipay/common package.',
         'refund_not_supported' => 'This gateway cannot refund payments.',
         'not_refundable' => 'Only confirmed payments can be refunded.',
+        'not_voidable' => 'Only payments awaiting confirmation or confirmed can be voided. Pending online payments settle with the provider; refund confirmed online payments instead of voiding them if money must go back.',
         'overlap' => ':billable already has cover from :start to :end. Pick other dates or allow the overlap.',
         'instance_deleted' => 'This payment gateway was deleted and cannot be activated.',
         'not_awaiting_confirmation' => 'This payment is not waiting for confirmation.',

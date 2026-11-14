@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ivanange\Billing\Tests\Feature\Online;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Ivanange\Billing\Data\ChargeResult;
@@ -12,11 +13,13 @@ use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Events\PaymentFailed;
 use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Exceptions\GatewayError;
+use Ivanange\Billing\Gateways\Providers\PaystackProvider;
 use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Payment;
 use Ivanange\Billing\Services\OnlinePaymentSettler;
 use Ivanange\Billing\Services\PaymentRefunder;
+use Ivanange\Billing\Services\PaymentVoider;
 use Ivanange\Billing\Tests\Fixtures\Member;
 use Ivanange\Billing\Tests\Support\OnlineHelpers;
 use Ivanange\Billing\Tests\TestCase;
@@ -160,5 +163,68 @@ class ReviewRegressionTest extends TestCase
 
         Http::assertNothingSent();
         $this->assertSame(0, CoveragePeriod::query()->count());
+    }
+
+    public function test_a_pending_online_payment_cannot_be_voided_so_a_late_success_still_gives_cover(): void
+    {
+        $payment = $this->startCheckout();
+
+        try {
+            app(PaymentVoider::class)->void($payment, 'Looks stuck', null);
+            $this->fail('A pending online payment must not be voidable');
+        } catch (BillingException $e) {
+            $this->assertStringStartsWith('Only payments awaiting confirmation or confirmed can be voided.', $e->getMessage());
+        }
+
+        app(OnlinePaymentSettler::class)->settle(Payment::query()->findOrFail($payment->id), $this->success($payment));
+        $this->assertSame(PaymentStatus::Confirmed, $payment->refresh()->status);
+        $this->assertSame(1, $payment->coveragePeriods()->count());
+    }
+
+    public function test_failed_and_refund_states_cannot_be_voided(): void
+    {
+        foreach ([PaymentStatus::Failed, PaymentStatus::Refunding, PaymentStatus::Refunded] as $status) {
+            $payment = $this->startCheckout();
+            $payment->forceFill(['status' => $status])->save();
+
+            try {
+                app(PaymentVoider::class)->void($payment, 'Clean up', null);
+                $this->fail("{$status->value} must not be voidable");
+            } catch (BillingException) {
+                $this->assertSame($status, $payment->refresh()->status);
+            }
+        }
+    }
+
+    public function test_a_refund_never_overwrites_a_state_changed_while_the_provider_was_called(): void
+    {
+        $payment = $this->confirmed();
+        Http::fake(function () use ($payment) {
+            DB::table('billing_payments')->where('id', $payment->id)->update(['status' => PaymentStatus::Void->value]);
+
+            return Http::response(['status' => true, 'message' => 'Refund has been queued', 'data' => ['transaction' => ['reference' => $payment->reference]]]);
+        });
+
+        try {
+            app(PaymentRefunder::class)->refund($payment, null);
+            $this->fail('Completion must notice the payment changed');
+        } catch (BillingException) {
+            $this->assertSame(PaymentStatus::Void, $payment->refresh()->status);
+        }
+    }
+
+    public function test_a_verify_answer_without_its_own_reference_does_not_confirm(): void
+    {
+        $payment = $this->startCheckout();
+        Http::fake(['api.paystack.co/transaction/verify/*' => Http::response([
+            'status' => true,
+            'data' => ['status' => 'success', 'amount' => 1500, 'currency' => 'GHS', 'id' => 1],
+        ])]);
+
+        $result = app(PaystackProvider::class)->verify($payment->gatewayInstance, (string) $payment->reference);
+        app(OnlinePaymentSettler::class)->settle($payment, $result);
+
+        $this->assertSame('', $result->reference);
+        $this->assertSame(PaymentStatus::Pending, $payment->refresh()->status);
     }
 }

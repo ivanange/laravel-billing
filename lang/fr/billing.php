@@ -46,6 +46,7 @@ return [
         'omnipay_missing' => 'Les paiements en ligne nécessitent le paquet omnipay/common.',
         'refund_not_supported' => 'Cette passerelle ne peut pas rembourser.',
         'not_refundable' => 'Seuls les paiements confirmés peuvent être remboursés.',
+        'not_voidable' => 'Seuls les paiements en attente de confirmation ou confirmés peuvent être annulés. Les paiements en ligne en cours se règlent chez le fournisseur ; remboursez un paiement en ligne confirmé s’il faut rendre l’argent.',
         'overlap' => ':billable est déjà couvert du :start au :end. Choisissez d’autres dates ou autorisez le chevauchement.',
         'instance_deleted' => 'Cette passerelle de paiement a été supprimée et ne peut pas être activée.',
         'not_awaiting_confirmation' => 'Ce paiement n’attend pas de confirmation.',
