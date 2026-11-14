@@ -15,9 +15,12 @@ return [
         ],
     ],
 
-    'providers' => ['offline' => 'Offline (cash, transfer, mobile money)', 'paystack' => 'Paystack (cards, mobile money)'],
+    'providers' => ['offline' => 'Offline (cash, transfer, mobile money)', 'paystack' => 'Paystack (cards, mobile money)', 'notchpay' => 'NotchPay (Cameroon mobile money)', 'hubtel' => 'Hubtel (Ghana mobile money, card)'],
 
     'methods' => [
+        'hubtel_checkout' => 'Mobile money or card (Hubtel)',
+        'mtn_momo' => 'MTN Mobile Money',
+        'orange_money' => 'Orange Money',
         'online_card' => 'Card',
         'online_mobile_money' => 'Mobile money',
         'online_bank_transfer' => 'Bank transfer',
@@ -36,6 +39,7 @@ return [
     ],
 
     'errors' => [
+        'gateway_misconfigured' => 'This payment gateway is not set up correctly. Check its settings.',
         'not_offline' => 'Online gateways cannot be used to record a payment by hand.',
         'not_online' => 'This gateway does not take online payments.',
         'price_not_in_plan' => 'This price does not belong to the plan.',
@@ -73,6 +77,23 @@ return [
     'paystack' => [
         'secret_key' => 'Secret key',
         'secret_key_help' => 'From Paystack → Settings → API Keys & Webhooks (sk_live_… or sk_test_…). Also used to check webhook signatures.',
+    ],
+
+    'notchpay' => [
+        'public_key' => 'Public key',
+        'public_key_help' => 'From NotchPay → Settings → API Keys (pk_… or pk_test_…).',
+        'private_key' => 'Private key',
+        'private_key_help' => 'Only needed for refunds (sent as X-Grant).',
+        'hash_key' => 'Webhook hash key',
+        'hash_key_help' => 'From NotchPay → Settings → API Keys; checks webhook signatures.',
+    ],
+
+    'hubtel' => [
+        'api_id' => 'API ID',
+        'api_key' => 'API key',
+        'api_key_help' => 'From Hubtel → Developers. Also whitelist this server\'s IP with Hubtel for status checks.',
+        'merchant_account' => 'Merchant account number',
+        'merchant_account_help' => 'Your Hubtel collection account number (POS Sales ID).',
     ],
 
     'pay' => [

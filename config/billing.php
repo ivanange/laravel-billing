@@ -13,6 +13,8 @@ return [
     'providers' => [
         OfflineProvider::class,
         // Ivanange\Billing\Gateways\Providers\PaystackProvider::class,
+        // Ivanange\Billing\Gateways\Providers\NotchPayProvider::class,
+        // Ivanange\Billing\Gateways\Providers\HubtelProvider::class,
     ],
 
     'gateways' => [

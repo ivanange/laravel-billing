@@ -90,11 +90,27 @@ composer require omnipay/common paystackhq/omnipay-paystack
 
 **HTTP calls.** Calls to providers go through Laravel's `Http` client, so `Http::fake()` works in your tests.
 
+### NotchPay (Cameroon) and Hubtel (Ghana)
+
+These drivers are built in; only `omnipay/common` is needed. Register `NotchPayProvider::class` and/or `HubtelProvider::class` in `billing.providers`.
+
+- **NotchPay.** Enter the public key, the private key (needed only for refunds) and the webhook *hash key*. Point NotchPay's webhook at `/billing/webhooks/{gateway id}`. Payers enter their phone number and pay with MTN MoMo or Orange Money, in XAF.
+- **Hubtel.** Enter the API ID and API key, and set the merchant (collection) account number. **Ask Hubtel to whitelist your server IPs**: the status API that confirms payments rejects other IPs. Hubtel callbacks are unsigned, so the package only treats them as a cue to re-check the status with Hubtel.
+
 **Rate limits** for webhooks and pay pages are keyed by client IP. Behind a load balancer, configure Laravel's trusted proxies so `$request->ip()` is the real client.
 
 **Refund events.** Refunds started from the provider's dashboard are not synced yet; refund from Filament instead.
 
-**Live sandbox test.** Run it with `PAYSTACK_TEST_SECRET=sk_test_… vendor/bin/phpunit tests/Live`. It is skipped when the key is not set.
+**Live sandbox tests** (each is skipped unless its keys are set):
+- Paystack: `PAYSTACK_TEST_SECRET=sk_test_…`
+- NotchPay: `NOTCHPAY_TEST_PUBLIC_KEY=pk_test_…`
+- Hubtel: `HUBTEL_TEST_API_ID`, `HUBTEL_TEST_API_KEY`, `HUBTEL_TEST_ACCOUNT`. Hubtel has no public sandbox, so this creates a real, unpaid checkout.
+
+Run them with `vendor/bin/phpunit tests/Live`.
+
+## Moving Kompass
+
+See `docs/KOMPASS_MIGRATION.md`. `php artisan billing:kompass-dry-run --connection=kompass` reports the mapping and writes nothing.
 
 ## Events
 

@@ -1,6 +1,6 @@
 # Billing package: design (draft for review)
 
-Status: **approved 2026-11-10; phase 1 done (v0.1.0); phases 2–3 planned in §12** as `ivanange/laravel-billing` (namespace `Ivanange\Billing`). Written from a study of the Kompass billing code and a survey of existing packages. Once the package repository is pushed, this file moves there.
+Status: **approved 2026-11-10; phase 1 done (v0.1.0); phase 2 (Paystack) and phase 3 (NotchPay, Hubtel, Kompass plan) implemented, see §12** as `ivanange/laravel-billing` (namespace `Ivanange\Billing`). Written from a study of the Kompass billing code and a survey of existing packages. Once the package repository is pushed, this file moves there.
 
 ## 0. What I understood you asked for (please correct)
 
@@ -285,14 +285,35 @@ The Filament `PayLinkAction` generates a link and copies it to the clipboard.
 
 ### 12.5 Phase 3 drivers (inside the package)
 
-- **`Ivanange\Billing\Gateways\Omnipay\NotchPay`**: an Omnipay `AbstractGateway` plus request/response classes over NotchPay's REST API (XAF, MTN/Orange Cameroon). Signed webhooks; the scheme follows NotchPay's docs.
-- **`Ivanange\Billing\Gateways\Omnipay\Hubtel`**: Hubtel Online Checkout (GHS). Its callbacks are not signed, so the webhook handler **re-queries the transaction status API** and never trusts the payload.
-- Every doc URL is cited in code comments.
+| Driver | Endpoints | Webhook trust | Methods |
+|---|---|---|---|
+| **`Omnipay\NotchPay`** (`NotchPayProvider`) | `POST /payments`, `GET /payments/{ref}`, `POST /refunds` (X-Grant), all on `https://api.notchpay.co`. Auth is `Authorization: <public key>`, with no "Bearer". | `x-notch-signature` = hex HMAC-SHA256 of the raw body with the account's **hash key**. Lookup accepts our reference or NotchPay's `trx.…` (stored as `external_id`). | `mtn_momo` (`cm.mtn`), `orange_money` (`cm.orange`); XAF in whole francs; payer phone required |
+| **`Omnipay\Hubtel`** (`HubtelProvider`) | `POST payproxyapi.hubtel.com/items/initiate`, `GET api-txnstatus.hubtel.com/transactions/{account}/status?clientReference=`. Basic auth with API ID:key. | Callbacks are **unsigned**. The handler takes only `ClientReference`, checks that this instance issued it, then **re-queries the status API**. The posted status and amount are never used. | `hubtel_checkout` (Hubtel's page: MoMo MTN/Telecel/AirtelTigo or card); GHS only; no refunds (Hubtel's refund API is MoMo-only and keyed by order id) |
 
-### 12.6 Stripe and PayPal (phase 3)
+**Doc URLs** are cited in each class.
 
-- **Stripe:** `omnipay/stripe` only if it installs and passes tests on PHP 8.3+/Laravel 13; otherwise the reason is documented here.
-- **PayPal:** skipped (legacy APIs).
+**Verify is strict.** A non-2xx answer, a non-JSON answer, or one without a transaction raises `GatewayError`; it is never read as "pending". Example: Hubtel returns 403 when the server IP is not whitelisted. When a reconcile run gets an error, it does not abandon the payment; it reports the error.
+
+**NotchPay lookups** use NotchPay's own reference (`trx.…`, stored in `external_id` at checkout) when one exists. That reference is documented to work. The merchant's reference is the fallback.
+
+**Hubtel states.** Hubtel reports only `Paid`, `Unpaid` and `Refunded`. A declined Hubtel checkout therefore stays `pending` until the reconcile command abandons it.
+
+**Hubtel's status API only answers whitelisted server IPs.** This is an operational prerequisite, documented in the README.
+
+**Not documented by the providers, so handled defensively:**
+- NotchPay's `transaction` field is sometimes an object and sometimes an id. Only `authorization_url` is relied on.
+- Whether `GET /payments/{ref}` accepts the merchant's own reference is unclear. The opt-in live test checks it.
+
+### 12.6 Stripe and PayPal: decision
+
+**Stripe: skipped for now.**
+- **Installation is fine.** `omnipay/stripe` 3.2.0 (2022) installs cleanly with omnipay/common 3.5 on PHP 8.3/8.4 and Laravel 13 (checked with `composer require --dry-run`).
+- **PaymentIntents doesn't fit our redirect flow.** The `Stripe\PaymentIntents` gateway requires a payment method collected client-side (Stripe.js/Elements). It hard-codes `confirmation_method=manual` and only redirects for 3-D Secure, so it cannot serve the pay link's "redirect to a hosted page" flow.
+- **Its `Stripe\Checkout` gateway is incomplete.** It never sends `client_reference_id` or metadata, `isRedirect()` is false, and it has no `completePurchase()` (upstream issues #216, #238).
+- **The repository is unmaintained.** Last push 2024-06, 86 open issues.
+- **Recommendation:** when Stripe is needed, write a thin in-package `Omnipay\StripeCheckout` driver, the same way as NotchPay and Hubtel: `POST /v1/checkout/sessions` with `client_reference_id`, `GET` the session to verify, and verify webhooks with the `Stripe-Signature` header (`t=…,v1=` HMAC-SHA256).
+
+**PayPal: skipped.** `omnipay/paypal` 3.0.2 (2018) targets the legacy NVP/Express Checkout and REST v1 APIs.
 
 ### 12.7 Critical paths & live test scenarios (extends §10)
 

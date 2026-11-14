@@ -15,9 +15,12 @@ return [
         ],
     ],
 
-    'providers' => ['offline' => 'Offline (bar, Überweisung, Mobile Money)', 'paystack' => 'Paystack (Karten, Mobile Money)'],
+    'providers' => ['offline' => 'Offline (bar, Überweisung, Mobile Money)', 'paystack' => 'Paystack (Karten, Mobile Money)', 'notchpay' => 'NotchPay (Mobile Money Kamerun)', 'hubtel' => 'Hubtel (Mobile Money Ghana, Karte)'],
 
     'methods' => [
+        'hubtel_checkout' => 'Mobile Money oder Karte (Hubtel)',
+        'mtn_momo' => 'MTN Mobile Money',
+        'orange_money' => 'Orange Money',
         'online_card' => 'Karte',
         'online_mobile_money' => 'Mobile Money',
         'online_bank_transfer' => 'Banküberweisung',
@@ -36,6 +39,7 @@ return [
     ],
 
     'errors' => [
+        'gateway_misconfigured' => 'Dieses Zahlungs-Gateway ist nicht richtig eingerichtet. Prüfen Sie die Einstellungen.',
         'not_offline' => 'Online-Gateways können nicht für manuell erfasste Zahlungen verwendet werden.',
         'not_online' => 'Dieses Zahlungs-Gateway nimmt keine Online-Zahlungen an.',
         'price_not_in_plan' => 'Dieser Preis gehört nicht zum Tarif.',
@@ -73,6 +77,23 @@ return [
     'paystack' => [
         'secret_key' => 'Geheimer Schlüssel',
         'secret_key_help' => 'Aus Paystack → Settings → API Keys & Webhooks (sk_live_… oder sk_test_…). Prüft auch die Webhook-Signaturen.',
+    ],
+
+    'notchpay' => [
+        'public_key' => 'Öffentlicher Schlüssel',
+        'public_key_help' => 'Aus NotchPay → Einstellungen → API-Schlüssel (pk_… oder pk_test_…).',
+        'private_key' => 'Privater Schlüssel',
+        'private_key_help' => 'Nur für Erstattungen nötig (als X-Grant gesendet).',
+        'hash_key' => 'Webhook-Hash-Schlüssel',
+        'hash_key_help' => 'Aus NotchPay → Einstellungen → API-Schlüssel; prüft Webhook-Signaturen.',
+    ],
+
+    'hubtel' => [
+        'api_id' => 'API-ID',
+        'api_key' => 'API-Schlüssel',
+        'api_key_help' => 'Aus Hubtel → Developers. Lassen Sie die IP dieses Servers für Statusabfragen bei Hubtel freischalten.',
+        'merchant_account' => 'Händlerkontonummer',
+        'merchant_account_help' => 'Ihre Hubtel-Inkassokontonummer (POS Sales ID).',
     ],
 
     'pay' => [

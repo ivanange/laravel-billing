@@ -63,6 +63,14 @@ class ReconcilePaymentsCommand extends Command
                 report($e);
             }
 
+            // A status check that keeps failing (revoked key, IP not
+            // whitelisted, unknown reference) must not keep a never-paid
+            // checkout pending forever. A real late payment still reaches us
+            // through the webhook, and the provider can be checked by hand.
+            if ($payment->status === PaymentStatus::Pending && $payment->created_at <= $abandonBefore) {
+                $settler->abandon($payment);
+            }
+
             return 'errors';
         }
 

@@ -42,7 +42,7 @@ class OnlinePaymentSettler
 
     public function settle(Payment $payment, ChargeResult $result): Payment
     {
-        if ($result->reference !== $payment->reference) {
+        if (! in_array($result->reference, array_filter([$payment->reference, $payment->external_id]), true)) {
             Log::warning('billing: result reference does not match payment', ['payment_id' => $payment->getKey()]);
 
             return $payment;
@@ -139,7 +139,8 @@ class OnlinePaymentSettler
     private function confirm(Payment $payment, ChargeResult $result): array
     {
         $payment->forceFill([
-            'external_id' => $result->externalId ?? $payment->external_id,
+            // Keep the id stored at checkout: later lookups (webhooks, refunds) use it.
+            'external_id' => $payment->external_id ?? $result->externalId,
             'paid_on' => CarbonImmutable::today(),
             'failed_at' => null,
             'failure_reason' => null,

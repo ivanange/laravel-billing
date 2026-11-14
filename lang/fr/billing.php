@@ -15,9 +15,12 @@ return [
         ],
     ],
 
-    'providers' => ['offline' => 'Hors ligne (espèces, virement, mobile money)', 'paystack' => 'Paystack (cartes, mobile money)'],
+    'providers' => ['offline' => 'Hors ligne (espèces, virement, mobile money)', 'paystack' => 'Paystack (cartes, mobile money)', 'notchpay' => 'NotchPay (mobile money Cameroun)', 'hubtel' => 'Hubtel (mobile money Ghana, carte)'],
 
     'methods' => [
+        'hubtel_checkout' => 'Mobile money ou carte (Hubtel)',
+        'mtn_momo' => 'MTN Mobile Money',
+        'orange_money' => 'Orange Money',
         'online_card' => 'Carte bancaire',
         'online_mobile_money' => 'Mobile money',
         'online_bank_transfer' => 'Virement bancaire',
@@ -36,6 +39,7 @@ return [
     ],
 
     'errors' => [
+        'gateway_misconfigured' => 'Cette passerelle de paiement est mal configurée. Vérifiez ses paramètres.',
         'not_offline' => 'Une passerelle en ligne ne peut pas servir à enregistrer un paiement à la main.',
         'not_online' => 'Cette passerelle n’accepte pas les paiements en ligne.',
         'price_not_in_plan' => 'Ce tarif n’appartient pas à cette formule.',
@@ -73,6 +77,23 @@ return [
     'paystack' => [
         'secret_key' => 'Clé secrète',
         'secret_key_help' => 'Dans Paystack → Settings → API Keys & Webhooks (sk_live_… ou sk_test_…). Sert aussi à vérifier la signature des webhooks.',
+    ],
+
+    'notchpay' => [
+        'public_key' => 'Clé publique',
+        'public_key_help' => 'Dans NotchPay → Paramètres → Clés API (pk_… ou pk_test_…).',
+        'private_key' => 'Clé privée',
+        'private_key_help' => 'Nécessaire uniquement pour les remboursements (en-tête X-Grant).',
+        'hash_key' => 'Clé de hachage des webhooks',
+        'hash_key_help' => 'Dans NotchPay → Paramètres → Clés API ; vérifie la signature des webhooks.',
+    ],
+
+    'hubtel' => [
+        'api_id' => 'ID API',
+        'api_key' => 'Clé API',
+        'api_key_help' => 'Dans Hubtel → Developers. Faites aussi autoriser l\'IP de ce serveur par Hubtel pour les vérifications de statut.',
+        'merchant_account' => 'Numéro de compte marchand',
+        'merchant_account_help' => 'Votre numéro de compte d\'encaissement Hubtel (POS Sales ID).',
     ],
 
     'pay' => [

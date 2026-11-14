@@ -124,6 +124,21 @@ class WebhookAndReconcileTest extends TestCase
         $this->assertSame(1, CoveragePeriod::query()->count());
     }
 
+    public function test_reconcile_abandons_old_checkouts_even_when_the_status_check_keeps_failing(): void
+    {
+        $stale = $this->startCheckout();
+        $recent = $this->startCheckout();
+        $stale->forceFill(['created_at' => now()->subDays(2)])->save();
+        $recent->forceFill(['created_at' => now()->subMinutes(30)])->save();
+        Http::fake(['*' => Http::response(['status' => false, 'message' => 'Invalid key'], 401)]);
+
+        $this->artisan('billing:reconcile-payments')->assertSuccessful();
+
+        $this->assertSame(PaymentStatus::Failed, $stale->refresh()->status);
+        $this->assertSame('abandoned', $stale->failure_reason);
+        $this->assertSame(PaymentStatus::Pending, $recent->refresh()->status, 'still inside the abandon window');
+    }
+
     public function test_refund_returns_money_and_voids_the_cover(): void
     {
         $payment = $this->startCheckout();

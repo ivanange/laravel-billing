@@ -50,10 +50,11 @@ class WebhookController
             return response('', 200);
         }
 
-        $payment = Payment::query()
-            ->where('gateway_instance_id', $gateway->id)
-            ->where('reference', $result->reference)
-            ->first();
+        // Our own reference first; the provider's id (external_id, unique per
+        // instance) only when no payment carries that reference.
+        $scoped = Payment::query()->where('gateway_instance_id', $gateway->id);
+        $payment = (clone $scoped)->where('reference', $result->reference)->first()
+            ?? (clone $scoped)->where('external_id', $result->reference)->first();
 
         if ($payment === null) {
             Log::info('billing: webhook for an unknown reference', ['gateway_instance_id' => $gateway->id]);
