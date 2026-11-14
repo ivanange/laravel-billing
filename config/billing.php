@@ -6,10 +6,13 @@ return [
 
     /*
     | Payment providers the app can create gateway instances of. Each class
-    | implements Ivanange\Billing\Contracts\PaymentProvider.
+    | implements Ivanange\Billing\Contracts\PaymentProvider. Online
+    | providers need omnipay/common (and, for Paystack,
+    | paystackhq/omnipay-paystack) installed.
     */
     'providers' => [
         OfflineProvider::class,
+        // Ivanange\Billing\Gateways\Providers\PaystackProvider::class,
     ],
 
     'gateways' => [
@@ -44,7 +47,33 @@ return [
 
     'routes' => [
         'prefix' => 'billing',
+        /* Admin routes (proof downloads). */
         'middleware' => ['web', 'auth'],
+        /* Public pay-link pages: the links are signed, so no login is needed. */
+        'pay_middleware' => ['web'],
+        /* Provider webhooks: no session, no CSRF; rate-limited per IP. */
+        'webhook_middleware' => ['throttle:billing-webhooks'],
+    ],
+
+    'online' => [
+        /* Seconds before a call to a payment provider gives up. */
+        'http_timeout' => 30,
+        /* billing:reconcile-payments re-checks pending payments older than this. */
+        'verify_after_minutes' => 15,
+        /* ...and fails those still unpaid after this long. */
+        'abandon_after_minutes' => 24 * 60,
+    ],
+
+    'pay_links' => [
+        /* Default lifetime of a self-service pay link. */
+        'expires_after_days' => 7,
+        /* Requests per minute per IP for the pay and return pages. */
+        'rate_limit' => 30,
+    ],
+
+    'webhooks' => [
+        /* Requests per minute per IP. */
+        'rate_limit' => 120,
     ],
 
     /*
@@ -60,5 +89,11 @@ return [
     | AppServiceProvider to tie them to your own roles.
     */
     'authorize_by_default' => true,
+
+    /*
+    | billing.refund sends money back through a provider, so it is denied
+    | unless your app defines the ability (recommended) or you set this.
+    */
+    'authorize_refunds_by_default' => false,
 
 ];

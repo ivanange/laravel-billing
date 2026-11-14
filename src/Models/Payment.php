@@ -10,7 +10,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Carbon;
 use Ivanange\Billing\Enums\PaymentStatus;
+use Ivanange\Billing\Support\BillableName;
 use Ivanange\Billing\Support\Money;
 
 /**
@@ -28,6 +30,11 @@ use Ivanange\Billing\Support\Money;
  * @property string|null $proof_path
  * @property int|null $recorded_by
  * @property int|null $confirmed_by
+ * @property Carbon|null $created_at
+ * @property string|null $external_id
+ * @property string|null $failure_reason
+ * @property CarbonImmutable|null $failed_at
+ * @property array<string, mixed>|null $meta
  * @property GatewayInstance $gatewayInstance
  */
 class Payment extends Model
@@ -47,10 +54,15 @@ class Payment extends Model
             'paid_on' => 'immutable_date',
             'confirmed_at' => 'immutable_datetime',
             'voided_at' => 'immutable_datetime',
+            'failed_at' => 'immutable_datetime',
+            'refunded_at' => 'immutable_datetime',
             'meta' => 'array',
         ];
     }
 
+    /**
+     * @return MorphTo<Model, $this>
+     */
     public function payer(): MorphTo
     {
         return $this->morphTo();
@@ -112,7 +124,7 @@ class Payment extends Model
     public function beneficiaryNames(): array
     {
         return $this->coveragePeriods
-            ->map(fn (CoveragePeriod $period): string => $period->billable?->billingName() ?? '—')
+            ->map(fn (CoveragePeriod $period): string => BillableName::of($period->billable))
             ->unique()
             ->values()
             ->all();
@@ -126,6 +138,19 @@ class Payment extends Model
         return (string) config('billing.user_model', config('auth.providers.users.model'));
     }
 
+    /**
+     * @return BelongsTo<Model, $this>
+     */
+    public function refunder(): BelongsTo
+    {
+        return $this->belongsTo(self::userModel(), 'refunded_by');
+    }
+
+    public function isOnline(): bool
+    {
+        return data_get($this->meta, 'checkout') !== null;
+    }
+
     public function formattedAmount(): string
     {
         return Money::format($this->amount, $this->currency);
@@ -133,6 +158,6 @@ class Payment extends Model
 
     public function methodLabel(): string
     {
-        return $this->gatewayInstance?->methodLabel($this->method) ?? $this->method;
+        return $this->gatewayInstance->methodLabel($this->method);
     }
 }

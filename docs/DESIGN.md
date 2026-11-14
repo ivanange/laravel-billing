@@ -1,6 +1,6 @@
 # Billing package: design (draft for review)
 
-Status: **approved 2026-11-10, phase 1 in progress** as `ivanange/laravel-billing` (namespace `Ivanange\Billing`). Written from a study of the Kompass billing code and a survey of existing packages. Once the package repository is pushed, this file moves there.
+Status: **approved 2026-11-10; phase 1 done (v0.1.0); phases 2–3 planned in §12** as `ivanange/laravel-billing` (namespace `Ivanange\Billing`). Written from a study of the Kompass billing code and a survey of existing packages. Once the package repository is pushed, this file moves there.
 
 ## 0. What I understood you asked for (please correct)
 
@@ -190,3 +190,129 @@ interface ManualConfirmation   { /* marker: payments stay "recorded" until a per
 3. **Maker-checker:** supported, off by default (`billing.confirmation.second_person`); with it off, a recorded payment is confirmed at once.
 4. **Group payments:** in phase 1 as a bulk action (one payment, one allocation per farmer).
 5. **Prices:** plans have price presets; the admin can still change the amount for each payment.
+
+## 12. Phases 2 and 3: plan (2026-11-10)
+
+### 12.1 Versions checked on Packagist (2026-11-10)
+
+| Package | Version | Notes |
+|---|---|---|
+| `omnipay/common` | 3.5.1 (2026-02-13) | PHP ^8; finds its HTTP client through PSR-18 discovery |
+| `paystackhq/omnipay-paystack` | 1.1.0 (2026-10-29) | The **official** Paystack driver (repository `PaystackHQ/omnipay-paystack`). Not archived; PHP 8 support and GitHub Actions CI were added in Oct 2026. Covers purchase (`/transaction/initialize`), completePurchase (`/transaction/verify/{ref}`) and refund. It doesn't send `channels`, so our gateway subclass adds that. |
+| `omnipay/stripe` | 3.2.0 (2022-03) | Last release in 2022. Phase 3 decides whether to use it (§12.6). |
+| `omnipay/paypal` | 3.0.2 (2018) | Legacy NVP/REST v1 APIs. **Skipped.** |
+| `larastan/larastan` | 3.14.0 | dev only |
+
+**Dependencies.** All of these are `suggest` + `require-dev` only, so an offline-only app installs none of them. `omnipay/common` brings `php-http/discovery`, which satisfies the `php-http/client-implementation` virtual package. At runtime we give Omnipay our own PSR-18 client, `LaravelHttpClient`, which sends through Laravel's `Http` client. So no Guzzle adapter is needed, timeouts come from config, and `Http::fake()` mocks every gateway call in tests, including the in-package NotchPay/Hubtel drivers.
+
+### 12.2 Capability interfaces (namespace `Ivanange\Billing\Contracts`)
+
+Providers stay stateless and are resolved from the registry. **Every call receives the `GatewayInstance` explicitly**: the payment's own instance, loaded by `payments.gateway_instance_id`. Nothing resolves credentials by provider type.
+
+```php
+interface ChargesOnce {          // hosted checkout: redirect the payer, then verify
+    public function start(GatewayInstance $instance, PaymentIntent $intent): StartedCharge;
+    public function verify(GatewayInstance $instance, string $reference): ChargeResult;
+}
+interface ReceivesWebhooks {     // throws InvalidWebhookSignature; null = event we ignore
+    public function parseWebhook(GatewayInstance $instance, Request $request): ?ChargeResult;
+}
+interface Refunds {
+    public function refund(GatewayInstance $instance, Payment $payment, ?int $amount = null): ChargeResult;
+}
+```
+
+Readonly value objects in `Ivanange\Billing\Data`:
+
+- `PaymentIntent`: reference, amount in minor units, currency, method, email, phone, description, returnUrl, metadata.
+- `StartedCharge`: redirectUrl, reference, externalId.
+- `ChargeResult`: status (`ChargeStatus::Succeeded|Pending|Failed`), reference, externalId, amount, currency, message.
+
+`OmnipayProvider` (abstract) implements `ChargesOnce` and `Refunds` on top of any Omnipay gateway:
+
+- It builds `new $gatewayClass(new PsrClient(new LaravelHttpClient))`.
+- It then calls `->initialize($this->parameters($instance))`, whose values come from **that instance's** credentials and settings.
+- It maps purchase/completePurchase/refund responses to `StartedCharge`/`ChargeResult`.
+
+Subclasses only declare the gateway class, the fields, the methods and the response mapping. `PaystackProvider extends OmnipayProvider implements ReceivesWebhooks`.
+
+### 12.3 Online payment lifecycle
+
+New `PaymentStatus` cases:
+
+- `pending`: started online, waiting for the provider;
+- `failed`: declined, abandoned or mismatched;
+- `refunded`.
+
+```
+pay link (signed URL: billable, plan, price)
+  └─ GET  /billing/pay            page: active instances × methods from GatewayCatalog (offline ones show instructions)
+  └─ POST /billing/pay            OnlineCheckout::start → Payment{pending, amount, currency, reference=BIL-…,
+                                  meta.checkout={billable, plan, price}} → provider->start(instance, intent)
+                                  → 302 to the provider's hosted page
+provider ──► GET /billing/pay/return/{reference}  → provider->verify(payment's instance, reference) → OnlinePaymentSettler
+provider ──► POST /billing/webhooks/{instance}    → provider->parseWebhook(instance, request) (signature with THAT
+                                                    instance's secret) → payment by (instance id, reference) → OnlinePaymentSettler
+OnlinePaymentSettler::settle(payment, result)     one DB transaction, payment row locked (lockForUpdate):
+  - already confirmed/refunded/void → no-op (duplicate webhook, callback/webhook race)
+  - succeeded: reference, amount and currency must equal the stored payment, else failed + meta.failure
+    → CoverageAllocator creates the periods (start = day after paid_until at confirmation time) → confirmed
+    → ledger refresh; PaymentConfirmed + CoverageExtended after commit
+  - failed → failed; pending → unchanged
+```
+
+**Why cover is allocated at confirmation, not at checkout:** an abandoned checkout must not reserve dates. Otherwise the payer's retry would hit the overlap guard. `CoverageAllocator` is pulled out of `PaymentRecorder`, so offline and online payments create cover the same way.
+
+**Late success:** a `failed` payment can still become `confirmed` when the provider later reports success for the same reference, because the money was taken. A `void` payment never can.
+
+**`billing:reconcile-payments`** re-verifies `pending` online payments older than `billing.online.verify_after_minutes`. It marks those still unpaid after `billing.online.abandon_after_minutes` as `failed`. Idempotent.
+
+### 12.4 Webhook and pay-link routes
+
+**Webhooks:** `POST /billing/webhooks/{instance}`.
+
+- Outside the `web` group, so there is no session and no CSRF; middleware is `throttle:billing-webhooks`.
+- The instance is looked up by id, soft-deleted ones included (old payments keep working).
+- Responses: 404 if the provider has no webhook support, 401 on a bad signature, 200 otherwise (also for unknown references, so the provider stops retrying).
+- Logs never include the payload's secrets or the instance's credentials.
+
+**Pay links:** `URL::temporarySignedRoute('billing.pay.show', …)` (`PayLink::make`).
+
+- The POST goes to the same signed URL, inside `web` (CSRF on).
+- The return route is `throttle`d. It only reads and verifies.
+
+The Filament `PayLinkAction` generates a link and copies it to the clipboard.
+
+### 12.5 Phase 3 drivers (inside the package)
+
+- **`Ivanange\Billing\Gateways\Omnipay\NotchPay`**: an Omnipay `AbstractGateway` plus request/response classes over NotchPay's REST API (XAF, MTN/Orange Cameroon). Signed webhooks; the scheme follows NotchPay's docs.
+- **`Ivanange\Billing\Gateways\Omnipay\Hubtel`**: Hubtel Online Checkout (GHS). Its callbacks are not signed, so the webhook handler **re-queries the transaction status API** and never trusts the payload.
+- Every doc URL is cited in code comments.
+
+### 12.6 Stripe and PayPal (phase 3)
+
+- **Stripe:** `omnipay/stripe` only if it installs and passes tests on PHP 8.3+/Laravel 13; otherwise the reason is documented here.
+- **PayPal:** skipped (legacy APIs).
+
+### 12.7 Critical paths & live test scenarios (extends §10)
+
+| # | Path | Kind | Test (boundary) |
+|---|---|---|---|
+| 17 | Pay link: a valid signature shows active instances × methods in the plan currency; an expired or tampered link is 403 | security | HTTP test against the real signed-URL middleware |
+| 18 | Start a Paystack checkout: pending payment, provider called with **that instance's** secret, 302 to `authorization_url` | happy / seam | `Http::fake` asserts the request URL, Bearer key, amount and channels |
+| 19 | Two Paystack instances: a payment made on A verifies with A's key after B is activated | seam | `Http::fake` asserts the Authorization header |
+| 20 | Return URL verifies → confirmed, cover created from paid_until, events fired | happy | `Http::fake` verify response |
+| 21 | Webhook with a valid HMAC-SHA512 → confirmed; a bad or missing signature → 401, no change | security | real HMAC computed in the test |
+| 22 | Duplicate webhook, and callback + webhook for one payment → confirmed once, one set of periods, events once | idempotency | settle twice and assert counts |
+| 23 | Amount or currency mismatch → failed with the reason stored, no cover | security | fake verify returns another amount |
+| 24 | Declined or abandoned → failed; the reconcile command fails stale pendings, confirms late successes; void stays void | edge | real artisan command + `Http::fake` |
+| 25 | Webhook for an unknown reference or another instance's payment → 200, nothing changes | edge | HTTP test |
+| 26 | Offline instance on the pay page shows payer instructions and no online submit | happy | HTTP test |
+| 27 | Refund (Paystack) → refunded, cover voided, ledger refreshed | happy | `Http::fake` |
+| 28 | Filament: panel boots with `BillingPlugin`; every resource page and action renders | smoke | testbench + Livewire |
+| 29 | Live: Paystack sandbox initialize + verify with `PAYSTACK_TEST_SECRET` | seam (live) | opt-in, skipped without the key |
+| 30 | NotchPay: initialize/verify/webhook signature; live behind `NOTCHPAY_TEST_PUBLIC_KEY` | seam | `Http::fake` + opt-in live |
+| 31 | Hubtel: initiate/status; callback triggers a status re-query (payload not trusted) | security / seam | `Http::fake` + opt-in live |
+| 32 | Kompass dry-run mapping: drivers → instances, cycles → periods + payments (counts only, no writes) | migration | command test on fixture tables |
+
+**Live tests:** they run only when the env key is set; CI has no keys, so they are skipped there. Every other seam (Paystack/NotchPay/Hubtel HTTP) is exercised through the real Omnipay driver code with Laravel's `Http::fake` at the socket edge, so the driver's request building and response parsing are real.

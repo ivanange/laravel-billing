@@ -14,9 +14,10 @@ use Ivanange\Billing\Models\GatewayInstance;
 class GatewayCatalog
 {
     /**
+     * @param  class-string|null  $capability  only providers implementing it, e.g. ManualConfirmation::class
      * @return Collection<int, GatewayInstance>
      */
-    public function instances(?string $currency = null): Collection
+    public function instances(?string $currency = null, ?string $capability = null): Collection
     {
         return GatewayInstance::query()
             ->active()
@@ -24,16 +25,18 @@ class GatewayCatalog
             ->orderBy('name')
             ->get()
             ->filter(fn (GatewayInstance $instance): bool => ($currency === null || $instance->supportsCurrency($currency))
-                && $instance->offeredMethods() !== [])
+                && $instance->offeredMethods() !== []
+                && ($capability === null || $instance->gateway() instanceof $capability))
             ->values();
     }
 
     /**
+     * @param  class-string|null  $capability
      * @return array<int, string> instance id => name
      */
-    public function instanceOptions(?string $currency = null): array
+    public function instanceOptions(?string $currency = null, ?string $capability = null): array
     {
-        return $this->instances($currency)->mapWithKeys(fn (GatewayInstance $i): array => [$i->id => $i->name])->all();
+        return $this->instances($currency, $capability)->mapWithKeys(fn (GatewayInstance $i): array => [$i->id => $i->name])->all();
     }
 
     /**

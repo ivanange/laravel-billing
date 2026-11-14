@@ -2,7 +2,7 @@
 
 return [
     'enums' => [
-        'payment_status' => ['recorded' => 'Awaiting confirmation', 'confirmed' => 'Confirmed', 'void' => 'Void'],
+        'payment_status' => ['recorded' => 'Awaiting confirmation', 'pending' => 'Waiting for the provider', 'confirmed' => 'Confirmed', 'failed' => 'Failed', 'refunding' => 'Refund in progress', 'refunded' => 'Refunded', 'void' => 'Void'],
         'period_status' => ['pending' => 'Awaiting payment confirmation', 'paid' => 'Paid', 'void' => 'Void'],
         'subscription_status' => ['active' => 'Active', 'cancelled' => 'Cancelled'],
         'duration_unit' => ['day' => 'Day', 'week' => 'Week', 'month' => 'Month', 'quarter' => 'Quarter', 'year' => 'Year'],
@@ -15,9 +15,12 @@ return [
         ],
     ],
 
-    'providers' => ['offline' => 'Offline (cash, transfer, mobile money)'],
+    'providers' => ['offline' => 'Offline (cash, transfer, mobile money)', 'paystack' => 'Paystack (cards, mobile money)'],
 
     'methods' => [
+        'online_card' => 'Card',
+        'online_mobile_money' => 'Mobile money',
+        'online_bank_transfer' => 'Bank transfer',
         'cash' => 'Cash',
         'mobile_money' => 'Mobile money (sent to our number)',
         'bank_transfer' => 'Bank transfer',
@@ -33,6 +36,17 @@ return [
     ],
 
     'errors' => [
+        'not_offline' => 'Online gateways cannot be used to record a payment by hand.',
+        'not_online' => 'This gateway does not take online payments.',
+        'price_not_in_plan' => 'This price does not belong to the plan.',
+        'calendar_price_offline_only' => 'Calendar prices can only be recorded by staff for now.',
+        'email_required' => 'Enter a valid email address.',
+        'phone_required' => 'Enter a phone number.',
+        'gateway_error' => 'The payment provider could not be reached or refused the request. Please try again.',
+        'omnipay_missing' => 'Online payments need the omnipay/common package.',
+        'refund_not_supported' => 'This gateway cannot refund payments.',
+        'not_refundable' => 'Only confirmed payments can be refunded.',
+        'not_voidable' => 'Only payments awaiting confirmation or confirmed can be voided. Pending online payments settle with the provider; refund confirmed online payments instead of voiding them if money must go back.',
         'overlap' => ':billable already has cover from :start to :end. Pick other dates or allow the overlap.',
         'instance_deleted' => 'This payment gateway was deleted and cannot be activated.',
         'not_awaiting_confirmation' => 'This payment is not waiting for confirmation.',
@@ -56,7 +70,55 @@ return [
         'amount_required' => 'Enter the amount received.',
     ],
 
+    'paystack' => [
+        'secret_key' => 'Secret key',
+        'secret_key_help' => 'From Paystack → Settings → API Keys & Webhooks (sk_live_… or sk_test_…). Also used to check webhook signatures.',
+    ],
+
+    'pay' => [
+        'title' => 'Pay',
+        'for' => 'For :name',
+        'paid_until' => 'Currently paid until :date.',
+        'no_gateways' => 'No payment method is available right now. Please contact us.',
+        'choose' => 'How do you want to pay?',
+        'method' => 'Payment method',
+        'email' => 'Email (for your receipt)',
+        'phone' => 'Phone number',
+        'submit' => 'Continue to payment',
+        'offline_no_instructions' => 'Ask us how to pay this way.',
+        'result_title' => 'Payment',
+        'reference' => 'Reference: :reference',
+        'result' => [
+            'confirmed' => 'Payment received. Thank you!',
+            'failed' => 'The payment did not go through.',
+            'pending' => 'We are waiting for the payment provider.',
+            'unchecked' => 'We could not check with the payment provider just now; we will keep trying.',
+            'pending_help' => 'Approve the prompt on your phone if you got one. This page shows the result once the provider confirms.',
+        ],
+    ],
+
+    'failure' => [
+        'start_failed' => 'The provider refused to start the payment',
+        'declined' => 'Declined by the provider',
+        'amount_mismatch' => 'The provider reported a different amount or currency',
+        'abandoned' => 'Not completed in time',
+    ],
+
+    'console' => [
+        'reconciled' => 'Online payments checked: :confirmed confirmed, :failed failed, :pending still pending, :errors could not be checked.',
+    ],
+
     'ui' => [
+        'pay_link' => [
+            'action' => 'Pay link',
+            'heading' => 'Create a pay link for :name',
+            'plan' => 'Plan',
+            'price' => 'What is paid for',
+            'expires_days' => 'Valid for (days)',
+            'submit' => 'Create link',
+            'done' => 'Pay link created and copied',
+            'copy_help' => 'Send this link to the payer. It works until :date.',
+        ],
         'navigation_group' => 'Billing',
         'calendar' => [
             'label' => 'Billing calendar',
@@ -93,6 +155,11 @@ return [
             'deactivate' => 'Deactivate',
         ],
         'payment' => [
+            'refund' => 'Refund',
+            'refund_help' => 'Returns the money through the provider and cancels the cover it bought.',
+            'refunded' => 'Payment refunded.',
+            'failure_reason' => 'Why it failed',
+            'reference' => 'Reference',
             'label' => 'Payment',
             'plural' => 'Payments',
             'paid_on' => 'Paid on',

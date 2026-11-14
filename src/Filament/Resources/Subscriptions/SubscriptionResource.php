@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
 use Ivanange\Billing\Enums\PeriodStatus;
 use Ivanange\Billing\Filament\Concerns\GatedResource;
 use Ivanange\Billing\Models\Subscription;
+use Ivanange\Billing\Support\BillableName;
 
 /**
  * Read-only overview: who is covered, on which plan, until when.
@@ -78,7 +79,7 @@ class SubscriptionResource extends Resource
             ->columns([
                 TextColumn::make('billable')
                     ->label(__('billing::billing.ui.payment.for'))
-                    ->formatStateUsing(fn (Subscription $record): string => $record->billable?->billingName() ?? '—'),
+                    ->formatStateUsing(fn (Subscription $record): string => BillableName::of($record->billable)),
                 TextColumn::make('plan.name')->label(__('billing::billing.ui.plan.label')),
                 TextColumn::make('paid_until')->label(__('billing::billing.ui.subscription.paid_until'))->date()->sortable()->placeholder('—'),
                 IconColumn::make('covered_now')->label(__('billing::billing.ui.subscription.covered_now'))->boolean(),
@@ -94,6 +95,12 @@ class SubscriptionResource extends Resource
             ]);
     }
 
+    /**
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $periods
+     * @return Builder<TModel>
+     */
     private static function coveringToday(Builder $periods): Builder
     {
         $today = CarbonImmutable::today();

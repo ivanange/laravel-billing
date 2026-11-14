@@ -20,10 +20,12 @@ use Illuminate\Database\Eloquent\Model;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Enums\PeriodStatus;
 use Ivanange\Billing\Filament\Actions\ConfirmPaymentAction;
+use Ivanange\Billing\Filament\Actions\RefundPaymentAction;
 use Ivanange\Billing\Filament\Actions\VoidPaymentAction;
 use Ivanange\Billing\Filament\Concerns\GatedResource;
 use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\Payment;
+use Ivanange\Billing\Support\BillableName;
 use Ivanange\Billing\Support\Money;
 
 /**
@@ -114,7 +116,7 @@ class PaymentResource extends Resource
                 SelectFilter::make('status')->label(__('billing::billing.ui.payment.status'))->options(PaymentStatus::options()),
                 SelectFilter::make('gateway_instance_id')->label(__('billing::billing.ui.gateway.label'))->relationship('gatewayInstance', 'name'),
             ])
-            ->recordActions([ViewAction::make(), ConfirmPaymentAction::make(), VoidPaymentAction::make()]);
+            ->recordActions([ViewAction::make(), ConfirmPaymentAction::make(), RefundPaymentAction::make(), VoidPaymentAction::make()]);
     }
 
     public static function infolist(Schema $schema): Schema
@@ -132,6 +134,11 @@ class PaymentResource extends Resource
                 TextEntry::make('recorder.name')->label(__('billing::billing.ui.payment.recorded_by'))->placeholder('—'),
                 TextEntry::make('confirmer.name')->label(__('billing::billing.ui.payment.confirmed_by'))->placeholder('—'),
                 TextEntry::make('confirmed_at')->label(__('billing::billing.ui.payment.confirmed_at'))->dateTime()->placeholder('—'),
+                TextEntry::make('failure_reason')->label(__('billing::billing.ui.payment.failure_reason'))
+                    ->visible(fn (Payment $record): bool => $record->status === PaymentStatus::Failed)
+                    ->formatStateUsing(fn (string $state): string => __('billing::billing.failure.'.$state)),
+                TextEntry::make('external_id')->label(__('billing::billing.ui.payment.reference'))
+                    ->visible(fn (Payment $record): bool => $record->isOnline())->placeholder('—'),
                 TextEntry::make('notes')->label(__('billing::billing.ui.record.notes'))->placeholder('—')->columnSpanFull(),
                 TextEntry::make('proof_path')
                     ->label(__('billing::billing.ui.record.proof'))
@@ -150,7 +157,7 @@ class PaymentResource extends Resource
             Section::make(__('billing::billing.ui.payment.covers'))->schema([
                 RepeatableEntry::make('coveragePeriods')->hiddenLabel()->columns(4)->schema([
                     TextEntry::make('billable')->label(__('billing::billing.ui.payment.for'))
-                        ->formatStateUsing(fn (CoveragePeriod $record): string => $record->billable?->billingName() ?? '—'),
+                        ->formatStateUsing(fn (CoveragePeriod $record): string => BillableName::of($record->billable)),
                     TextEntry::make('starts_on')->label(__('billing::billing.ui.period.dates'))
                         ->formatStateUsing(fn (CoveragePeriod $record): string => $record->starts_on->isoFormat('ll').' – '.$record->ends_on->isoFormat('ll')),
                     TextEntry::make('amount')->label(__('billing::billing.ui.payment.amount'))
@@ -174,8 +181,10 @@ class PaymentResource extends Resource
     private static function statusColor(PaymentStatus $status): string
     {
         return match ($status) {
-            PaymentStatus::Recorded => 'warning',
+            PaymentStatus::Recorded, PaymentStatus::Pending => 'warning',
             PaymentStatus::Confirmed => 'success',
+            PaymentStatus::Failed => 'danger',
+            PaymentStatus::Refunding, PaymentStatus::Refunded => 'info',
             PaymentStatus::Void => 'gray',
         };
     }

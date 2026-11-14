@@ -50,11 +50,17 @@ class Subscription extends Model
         return $this->belongsTo(Plan::class)->withTrashed();
     }
 
+    /**
+     * @return MorphTo<Model, $this>
+     */
     public function billable(): MorphTo
     {
         return $this->morphTo();
     }
 
+    /**
+     * @return MorphTo<Model, $this>
+     */
     public function payer(): MorphTo
     {
         return $this->morphTo();

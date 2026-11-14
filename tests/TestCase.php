@@ -11,6 +11,7 @@ use Ivanange\Billing\Data\PaymentDraft;
 use Ivanange\Billing\Enums\DurationUnit;
 use Ivanange\Billing\Gateways\GatewayActivation;
 use Ivanange\Billing\Gateways\Providers\OfflineProvider;
+use Ivanange\Billing\Gateways\Providers\PaystackProvider;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Payment;
 use Ivanange\Billing\Models\Plan;
@@ -35,6 +36,7 @@ abstract class TestCase extends Orchestra
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('k', 32)));
         $app['config']->set('database.default', 'testing');
         $app['config']->set('auth.providers.users.model', User::class);
+        $app['config']->set('billing.providers', [OfflineProvider::class, PaystackProvider::class]);
     }
 
     protected function defineDatabaseMigrations(): void
@@ -75,6 +77,17 @@ abstract class TestCase extends Orchestra
         }
 
         return $instance->refresh();
+    }
+
+    protected function paystack(string $name = 'Paystack Ghana', string $secret = 'sk_test_ghana', bool $active = true): GatewayInstance
+    {
+        return $this->gateway([
+            'name' => $name,
+            'provider' => PaystackProvider::key(),
+            'credentials' => ['secret_key' => $secret],
+            'enabled_methods' => [PaystackProvider::CARD, PaystackProvider::MOBILE_MONEY],
+            'currencies' => ['GHS'],
+        ], $active);
     }
 
     protected function member(string $name = 'Ama'): Member

@@ -27,10 +27,14 @@ jobs:
           extensions: intl, pdo_sqlite
           coverage: pcov
       - name: Install dependencies
+        env:
+          COMPOSER_AUTH: '{"github-oauth": {"github.com": "${{ secrets.GITHUB_TOKEN }}"}}'
         run: |
           composer require "illuminate/support:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update --dev
           composer update --prefer-dist --no-interaction --no-progress
       - name: Code style
         run: vendor/bin/pint --test
+      - name: Static analysis
+        run: composer analyse
       - name: Tests
         run: vendor/bin/phpunit --coverage-text

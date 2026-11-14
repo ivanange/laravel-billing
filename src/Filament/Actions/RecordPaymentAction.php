@@ -9,6 +9,7 @@ use Filament\Actions\Action;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
+use Ivanange\Billing\Contracts\Billable;
 use Ivanange\Billing\Filament\Forms\RecordPaymentForm;
 
 /**
@@ -32,11 +33,11 @@ class RecordPaymentAction extends Action
         return $this;
     }
 
-    public function resolveBillable(): ?Model
+    public function resolveBillable(): (Model&Billable)|null
     {
         $billable = $this->billableResolver === null ? $this->getRecord() : $this->evaluate($this->billableResolver);
 
-        return $billable instanceof Model ? $billable : null;
+        return $billable instanceof Model && $billable instanceof Billable ? $billable : null;
     }
 
     protected function setUp(): void

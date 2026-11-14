@@ -13,6 +13,9 @@ use RuntimeException;
  */
 class BillingException extends RuntimeException
 {
+    /**
+     * @param  array<string, string|int|float|null>  $replace
+     */
     public static function because(string $key, array $replace = []): self
     {
         return new self(__('billing::billing.errors.'.$key, $replace));
