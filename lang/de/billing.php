@@ -50,6 +50,7 @@ return [
         'omnipay_missing' => 'Online-Zahlungen benötigen das Paket omnipay/common.',
         'refund_not_supported' => 'Dieses Gateway kann keine Zahlungen erstatten.',
         'not_refundable' => 'Nur bestätigte Zahlungen können erstattet werden.',
+        'not_voidable' => 'Nur Zahlungen, die auf Bestätigung warten oder bestätigt sind, können storniert werden. Laufende Online-Zahlungen werden beim Anbieter abgeschlossen; erstatten Sie bestätigte Online-Zahlungen, wenn Geld zurück soll.',
         'overlap' => ':billable ist bereits vom :start bis :end abgedeckt. Wählen Sie andere Daten oder erlauben Sie die Überschneidung.',
         'instance_deleted' => 'Dieses Zahlungs-Gateway wurde gelöscht und kann nicht aktiviert werden.',
         'not_awaiting_confirmation' => 'Diese Zahlung wartet nicht auf Bestätigung.',

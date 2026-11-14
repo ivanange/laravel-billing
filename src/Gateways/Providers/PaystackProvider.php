@@ -156,7 +156,9 @@ class PaystackProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
                 in_array($status, self::FAILED, true) => ChargeStatus::Failed,
                 default => ChargeStatus::Pending,
             },
-            reference: $this->stringOrNull($data['reference'] ?? null) ?? $reference,
+            // Only the provider's own reference counts: falling back to the one we
+            // asked about would make the settler's reference check meaningless.
+            reference: $this->stringOrNull($data['reference'] ?? null) ?? '',
             amount: $this->intOrNull($data['amount'] ?? null),
             currency: $this->stringOrNull($data['currency'] ?? null),
             externalId: $this->stringOrNull($data['id'] ?? null),

@@ -84,6 +84,11 @@ class PaymentRefunder
     {
         $this->db->transaction(function () use ($payment, $by): void {
             $locked = Payment::query()->whereKey($payment->getKey())->lockForUpdate()->firstOrFail();
+            if ($locked->status !== PaymentStatus::Refunding) {
+                // Someone changed it meanwhile; never overwrite their state.
+                throw BillingException::because('not_refundable');
+            }
+
             $locked->forceFill([
                 'status' => PaymentStatus::Refunded,
                 'refunded_at' => CarbonImmutable::now(),

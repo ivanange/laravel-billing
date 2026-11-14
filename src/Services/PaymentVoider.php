@@ -26,6 +26,14 @@ class PaymentVoider
         private readonly CoverageLedger $ledger,
     ) {}
 
+    /**
+     * @return list<PaymentStatus>
+     */
+    public static function voidable(): array
+    {
+        return [PaymentStatus::Recorded, PaymentStatus::Confirmed];
+    }
+
     public function void(Payment $payment, string $reason, ?Authenticatable $by): Payment
     {
         $reason = trim($reason);
@@ -40,6 +48,13 @@ class PaymentVoider
 
             if ($locked->status === PaymentStatus::Void) {
                 throw BillingException::because('already_void');
+            }
+
+            // Pending online payments may still succeed at the provider (a void
+            // would then swallow real money), failed ones have nothing to void,
+            // and refunds own the Refunding/Refunded states.
+            if (! in_array($locked->status, self::voidable(), true)) {
+                throw BillingException::because('not_voidable');
             }
 
             $payment->setRawAttributes($locked->getAttributes(), true);
