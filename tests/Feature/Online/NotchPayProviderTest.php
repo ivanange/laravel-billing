@@ -52,6 +52,22 @@ class NotchPayProviderTest extends TestCase
         ], 202);
     }
 
+    /**
+     * NotchPay's status API answering for whatever reference is asked, as the
+     * webhook handler now re-checks every success there.
+     */
+    private function statusApiConfirms(int $amount = 5000, string $currency = 'XAF'): void
+    {
+        Http::fake(['api.notchpay.co/payments/*' => function ($request) use ($amount, $currency) {
+            $reference = rawurldecode((string) str($request->url())->afterLast('/'));
+
+            return Http::response([
+                'status' => 'Accepted', 'code' => 202,
+                'transaction' => ['id' => 'pay_123', 'reference' => $reference, 'amount' => $amount, 'currency' => $currency, 'status' => 'complete'],
+            ], 202);
+        }]);
+    }
+
     public function test_start_sends_whole_francs_with_the_public_key_and_locks_the_channel(): void
     {
         Http::fake(['api.notchpay.co/payments' => $this->initialized()]);
@@ -164,6 +180,7 @@ class NotchPayProviderTest extends TestCase
         $payment = Payment::query()->sole();
 
         // NotchPay's own reference only (trx.…), as some payload versions send.
+        $this->statusApiConfirms();
         $body = (string) json_encode(['id' => 'evt_1', 'type' => 'payment.complete', 'data' => ['id' => 'pay_123', 'reference' => 'trx.abc123', 'amount' => 5000, 'currency' => 'XAF', 'status' => 'complete']]);
         $this->hook($instance, $body, hash_hmac('sha256', $body, 'hsk_test_cm'))->assertOk();
 
@@ -192,6 +209,7 @@ class NotchPayProviderTest extends TestCase
         $second = Payment::query()->create($first->only(['payer_type', 'payer_id', 'gateway_instance_id', 'method', 'amount', 'currency', 'paid_on', 'meta']) + ['status' => PaymentStatus::Pending, 'reference' => 'trx.abc123x']);
         $first->forceFill(['external_id' => 'trx.abc123x'])->save();
 
+        $this->statusApiConfirms();
         $body = (string) json_encode(['type' => 'payment.complete', 'data' => ['reference' => 'trx.abc123x', 'amount' => 5000, 'currency' => 'XAF']]);
         $this->hook($instance, $body, hash_hmac('sha256', $body, 'hsk_test_cm'))->assertOk();
 
@@ -216,6 +234,36 @@ class NotchPayProviderTest extends TestCase
         $this->assertSame(PaymentStatus::Refunded, $payment->status);
         Http::assertSent(fn (HttpRequest $r): bool => $r->url() === 'https://api.notchpay.co/refunds'
             && $r->header('X-Grant') === ['sk_test_cm'] && $r['payment'] === 'trx.abc123');
+    }
+
+    public function test_a_success_webhook_without_amount_is_confirmed_from_the_status_api(): void
+    {
+        $instance = $this->notchpay();
+        $price = $this->monthlyPrice($this->plan(['currency' => 'XAF']), 5000);
+        Http::fake(['api.notchpay.co/payments' => $this->initialized()]);
+        app(OnlineCheckout::class)->start(new CheckoutRequest($this->member(), $price->plan, $price, $instance, NotchPayProvider::MTN, phone: '+237670000000'));
+        $payment = Payment::query()->sole();
+        $this->statusApiConfirms();
+
+        $body = (string) json_encode(['type' => 'payment.complete', 'data' => ['reference' => 'trx.abc123']]);
+        $this->hook($instance, $body, hash_hmac('sha256', $body, 'hsk_test_cm'))->assertOk();
+
+        $this->assertSame(PaymentStatus::Confirmed, $payment->refresh()->status);
+    }
+
+    public function test_a_success_webhook_never_fails_a_payment_when_the_status_api_is_down(): void
+    {
+        $instance = $this->notchpay();
+        $price = $this->monthlyPrice($this->plan(['currency' => 'XAF']), 5000);
+        Http::fake(['api.notchpay.co/payments' => $this->initialized()]);
+        app(OnlineCheckout::class)->start(new CheckoutRequest($this->member(), $price->plan, $price, $instance, NotchPayProvider::MTN, phone: '+237670000000'));
+        $payment = Payment::query()->sole();
+        Http::fake(['api.notchpay.co/payments/*' => Http::response('down', 503)]);
+
+        $body = (string) json_encode(['type' => 'payment.complete', 'data' => ['reference' => 'trx.abc123', 'amount' => 1, 'currency' => 'XAF']]);
+        $this->hook($instance, $body, hash_hmac('sha256', $body, 'hsk_test_cm'))->assertOk();
+
+        $this->assertSame(PaymentStatus::Pending, $payment->refresh()->status, 'the body\'s wrong amount is ignored; reconcile retries');
     }
 
     private function hook(GatewayInstance $instance, string $body, string $signature): TestResponse

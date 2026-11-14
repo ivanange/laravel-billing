@@ -85,11 +85,19 @@ class KompassDryRunTest extends TestCase
 
     public function test_the_command_prints_the_plan_and_writes_nothing(): void
     {
+        $statements = [];
+        DB::listen(function ($query) use (&$statements): void {
+            $statements[] = strtolower(ltrim($query->sql));
+        });
+
         $this->artisan('billing:kompass-dry-run')
             ->expectsOutputToContain('Several active [paypal] drivers')
             ->expectsOutputToContain('Dry run: nothing was written.')
             ->assertSuccessful();
 
+        $writes = array_filter($statements, fn (string $sql): bool => ! str_starts_with($sql, 'select') && ! str_starts_with($sql, 'pragma'));
+        $this->assertNotEmpty($statements);
+        $this->assertSame([], array_values($writes), 'the dry run only reads');
         $this->assertSame(0, GatewayInstance::query()->count());
         $this->assertSame(3, DB::table('payment_drivers')->count());
     }

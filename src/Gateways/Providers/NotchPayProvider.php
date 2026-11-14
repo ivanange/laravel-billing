@@ -10,6 +10,7 @@ use Ivanange\Billing\Contracts\Refunds;
 use Ivanange\Billing\Data\ChargeResult;
 use Ivanange\Billing\Data\PaymentIntent;
 use Ivanange\Billing\Enums\ChargeStatus;
+use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Exceptions\InvalidWebhook;
 use Ivanange\Billing\Gateways\Omnipay\NotchPay\Gateway;
 use Ivanange\Billing\Gateways\Omnipay\NotchPay\Message\TransactionResponse;
@@ -200,6 +201,13 @@ class NotchPayProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
             return null;
         }
 
+        // A success is only taken from NotchPay's status API, never from the
+        // webhook body: the documented payload shape doesn't guarantee amount
+        // and currency, and a missing one would fail a payment that was paid.
+        if ($status === ChargeStatus::Succeeded) {
+            return $this->verifiedOrPending($instance, $reference);
+        }
+
         return new ChargeResult(
             status: $status,
             reference: $reference,
@@ -207,5 +215,15 @@ class NotchPayProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
             currency: $this->stringOrNull($data['currency'] ?? null),
             externalId: $this->providerReference($data, $reference),
         );
+    }
+
+    private function verifiedOrPending(GatewayInstance $instance, string $reference): ChargeResult
+    {
+        try {
+            return $this->verify($instance, $reference);
+        } catch (GatewayError) {
+            // Status API down: leave it pending; billing:reconcile-payments retries.
+            return new ChargeResult(ChargeStatus::Pending, $reference);
+        }
     }
 }
