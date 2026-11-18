@@ -108,10 +108,6 @@ These drivers are built in; only `omnipay/common` is needed. Register `NotchPayP
 
 Run them with `vendor/bin/phpunit tests/Live`.
 
-## Moving Kompass
-
-See `docs/KOMPASS_MIGRATION.md`. `php artisan billing:kompass-dry-run --connection=kompass` reports the mapping and writes nothing.
-
 ## Events
 
 `PaymentRecorded`, `PaymentConfirmed`, `PaymentFailed`, `PaymentRefunded`, `PaymentVoided`, `CoverageExtended`, `CoverageExpiring`, `CoverageLapsed`, `GatewayActivated`.

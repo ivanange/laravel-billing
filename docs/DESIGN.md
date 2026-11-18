@@ -1,6 +1,6 @@
 # Billing package: design
 
-Status: **approved 2026-11-10; phase 1 done (v0.1.0); phase 2 (Paystack) and phase 3 (NotchPay, Hubtel, legacy-import dry run) implemented, see §12** as `ivanange/laravel-billing` (namespace `Ivanange\Billing`). Written after a survey of existing packages and a review of hand-written billing code in existing Laravel apps.
+Status: **approved 2026-11-10; phase 1 done (v0.1.0); phase 2 (Paystack) and phase 3 (NotchPay, Hubtel) implemented, see §12** as `ivanange/laravel-billing` (namespace `Ivanange\Billing`). Written after a survey of existing packages and a review of hand-written billing code in existing Laravel apps.
 
 ## 0. Goals
 
@@ -160,7 +160,7 @@ interface ManualConfirmation   { /* marker: payments stay "recorded" until a per
   - core models and migrations, the period engine, `OfflineProvider`, record/confirm/void, the coverage scope, the daily command, events, the Filament plugin, translations (en/fr);
   - **first host-app integration** (done in the app, not in the package): a `Farmer` model implements Billable, a weekly SMS is filtered by cover, and expiry and receipt SMS go out.
 - **Phase 2:** `OmnipayProvider` plus Paystack (Ghana cards and MoMo), webhooks, and a self-service pay link.
-- **Phase 3:** NotchPay and Hubtel drivers, Stripe and PayPal, then a migration path for apps that already have billing tables (driver rows → `GatewayInstance`, billing cycles → `CoveragePeriod` + `Payment`).
+- **Phase 3:** NotchPay and Hubtel drivers, Stripe and PayPal, then a migration path for apps that already have billing tables (driver rows → `GatewayInstance`, billing cycles → `CoveragePeriod` + `Payment`). Each import is written in the app it serves, against the package's public models and services; the package ships none.
 
 ## 10. Critical paths and live test scenarios
 
@@ -334,6 +334,6 @@ The Filament `PayLinkAction` generates a link and copies it to the clipboard.
 | 29 | Live: Paystack sandbox initialize + verify with `PAYSTACK_TEST_SECRET` | seam (live) | opt-in, skipped without the key |
 | 30 | NotchPay: initialize/verify/webhook signature; live behind `NOTCHPAY_TEST_PUBLIC_KEY` | seam | `Http::fake` + opt-in live |
 | 31 | Hubtel: initiate/status; callback triggers a status re-query (payload not trusted) | security / seam | `Http::fake` + opt-in live |
-| 32 | Legacy-import dry run: drivers → instances, cycles → periods + payments (counts only, no writes) | migration | command test on fixture tables |
+| 32 | *Removed.* The import dry run was specific to one app and moved there; imports are tested in the app that owns them. | – | – |
 
 **Live tests:** they run only when the env key is set; CI has no keys, so they are skipped there. Every other seam (Paystack/NotchPay/Hubtel HTTP) is exercised through the real Omnipay driver code with Laravel's `Http::fake` at the socket edge, so the driver's request building and response parsing are real.
