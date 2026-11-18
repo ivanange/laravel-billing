@@ -21,6 +21,7 @@ While the version is 0.x, a minor release may break existing apps; such changes 
 
 ### Breaking and behaviour changes
 
+- **Removed the app-specific migration dry run.** `billing:kompass-dry-run`, `Migration\KompassInspector` and `docs/KOMPASS_MIGRATION.md` are gone. They read one app's legacy tables; that tool now lives in that app. The package ships no import.
 - **Events wait for the outermost commit.** Billing events fired inside a caller's database transaction are dispatched only after it commits, and never if it rolls back. With no transaction open they still fire at once.
 - **Reconciliation: `unverifiable` instead of `abandoned`.** A pending payment whose status check kept failing (outage, IP not whitelisted, an answer that does not name the payment) now ends `failed` with reason `unverifiable`, with the provider's message in its metadata. It may have been paid: the return page re-checks such payments for a day, like `declined` and `abandoned` ones, and a verified success (webhook or return page) still confirms them. The payments list filters by failure reason. Payments that were simply never paid still end `abandoned`.
 - **`OnlinePaymentSettler::abandon()`** takes an optional reason and details: `abandon(Payment $payment, FailureReason $reason = FailureReason::Abandoned, array $details = [])`. Subclasses overriding it must update their signature.

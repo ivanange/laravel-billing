@@ -8,7 +8,7 @@ Last updated: 2026-11-18. Branch: `fix/phases-1-3-audit` (not merged). `main` is
 |---|---|
 | 1 Offline payments | Shipped (v0.1.0). Audited 2026-11-16; defects fixed on this branch. |
 | 2 Online: Paystack, webhooks, pay links | Shipped (v0.2.0). Audited; defects fixed on this branch. |
-| 3 NotchPay, Hubtel, Kompass plan | On `main`, untagged. Audited; defects fixed on this branch. Stripe, PayPal and the Kompass import were not built (see below). |
+| 3 NotchPay, Hubtel | On `main`, untagged. Audited; defects fixed on this branch. Stripe and PayPal were not built (see below). |
 | 4 Gap closure (`DESIGN.md` §13) | Planned and approved in outline. Paused until this branch is merged. |
 
 ## This branch
@@ -50,7 +50,7 @@ Main fixes:
 
 | Item | Status |
 |---|---|
-| Kompass data migration | Plan and read-only dry run only (`KOMPASS_MIGRATION.md`). Import command not written. |
+| Import from an app's legacy billing tables | Removed from the package: the plan and the dry-run command were specific to one app and moved there. |
 | Stripe, PayPal | Skipped on purpose (`DESIGN.md` §12.6). |
 | Gateway availability rules; methods filtered by billable type | Not built, not scheduled. Decision pending. |
 | `overdue` / `waived` period statuses; overdue marking | Not built, not scheduled. Decision pending. |
