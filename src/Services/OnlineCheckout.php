@@ -5,18 +5,21 @@ declare(strict_types=1);
 namespace Ivanange\Billing\Services;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Ivanange\Billing\Contracts\ChargesOnce;
 use Ivanange\Billing\Data\CheckoutRequest;
 use Ivanange\Billing\Data\PaymentIntent;
 use Ivanange\Billing\Data\StartedCharge;
+use Ivanange\Billing\Enums\FailureReason;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Events\PaymentFailed;
 use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Gateways\Omnipay\OmnipayProvider;
 use Ivanange\Billing\Models\Payment;
+use Ivanange\Billing\Services\Concerns\DispatchesAfterCommit;
 use Throwable;
 
 /**
@@ -27,6 +30,10 @@ use Throwable;
  */
 class OnlineCheckout
 {
+    use DispatchesAfterCommit;
+
+    public function __construct(private readonly ConnectionInterface $db) {}
+
     public function start(CheckoutRequest $request): StartedCharge
     {
         $provider = $this->validate($request);
@@ -127,7 +134,7 @@ class OnlineCheckout
         $payment->forceFill([
             'status' => PaymentStatus::Failed,
             'failed_at' => CarbonImmutable::now(),
-            'failure_reason' => 'start_failed',
+            'failure_reason' => FailureReason::StartFailed->value,
         ])->save();
 
         Log::warning('billing: checkout could not be started', [
@@ -136,6 +143,6 @@ class OnlineCheckout
             'provider_message' => $e instanceof GatewayError ? $e->providerMessage : $e::class,
         ]);
 
-        event(new PaymentFailed($payment));
+        $this->afterCommit(fn () => event(new PaymentFailed($payment)));
     }
 }

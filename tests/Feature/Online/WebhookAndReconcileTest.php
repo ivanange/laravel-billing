@@ -8,13 +8,18 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Testing\TestResponse;
+use Ivanange\Billing\Data\CheckoutRequest;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Enums\PeriodStatus;
+use Ivanange\Billing\Events\CoverageExtended;
 use Ivanange\Billing\Events\PaymentConfirmed;
 use Ivanange\Billing\Events\PaymentRefunded;
 use Ivanange\Billing\Exceptions\BillingException;
+use Ivanange\Billing\Gateways\Providers\PaystackProvider;
 use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\GatewayInstance;
+use Ivanange\Billing\Models\Payment;
+use Ivanange\Billing\Services\OnlineCheckout;
 use Ivanange\Billing\Services\PaymentRefunder;
 use Ivanange\Billing\Tests\Support\OnlineHelpers;
 use Ivanange\Billing\Tests\TestCase;
@@ -35,7 +40,7 @@ class WebhookAndReconcileTest extends TestCase
         $instance = $this->paystack(secret: 'sk_test_hook');
         $payment = $this->startCheckout(gateway: $instance);
         [$body, $signature] = $this->paystackWebhook('sk_test_hook', (string) $payment->reference);
-        Event::fake([PaymentConfirmed::class]);
+        Event::fake([PaymentConfirmed::class, CoverageExtended::class]);
 
         $this->hook($instance, $body, $signature)->assertOk();
         $this->hook($instance, $body, $signature)->assertOk();
@@ -43,6 +48,44 @@ class WebhookAndReconcileTest extends TestCase
         $this->assertSame(PaymentStatus::Confirmed, $payment->refresh()->status);
         $this->assertSame(1, CoveragePeriod::query()->count());
         Event::assertDispatchedTimes(PaymentConfirmed::class, 1);
+        Event::assertDispatchedTimes(CoverageExtended::class, 1);
+    }
+
+    public function test_a_payment_made_on_instance_a_is_verified_reconciled_and_refunded_with_as_key_after_b_is_activated(): void
+    {
+        Http::fake([
+            'api.paystack.co/transaction/initialize' => fn ($request) => $this->paystackInitialized('trx-'.$request['reference']),
+            'api.paystack.co/transaction/verify/*' => fn ($request) => $this->paystackTransaction(rawurldecode((string) str($request->url())->afterLast('/'))),
+            'api.paystack.co/refund' => Http::response(['status' => true, 'message' => 'Refund has been queued for processing', 'data' => ['id' => 1, 'status' => 'pending']]),
+        ]);
+        $a = $this->paystack('Paystack A', 'sk_test_aaa');
+        $returning = $this->startOn($a);
+        $reconciled = $this->startOn($a);
+        $reconciled->forceFill(['created_at' => now()->subHour()])->save();
+        $this->paystack('Paystack B', 'sk_test_bbb');
+        $this->assertFalse($a->refresh()->is_active, 'activating B switched A off');
+
+        $this->get(route('billing.pay.return', $returning->reference))->assertOk();
+        $this->artisan('billing:reconcile-payments')->assertSuccessful();
+        app(PaymentRefunder::class)->refund($returning->refresh(), null);
+
+        $this->assertSame(PaymentStatus::Refunded, $returning->status);
+        $this->assertSame(PaymentStatus::Confirmed, $reconciled->refresh()->status);
+        $sent = Http::recorded(fn ($request): bool => ! str_ends_with($request->url(), '/transaction/initialize'));
+        $this->assertCount(3, $sent, 'verify (return), verify (reconcile), refund');
+        foreach ($sent as [$request]) {
+            $this->assertSame(['Bearer sk_test_aaa'], $request->header('Authorization'), $request->url());
+        }
+        Http::assertNotSent(fn ($request): bool => str_contains((string) json_encode($request->headers()), 'sk_test_bbb'));
+    }
+
+    /** Starts a checkout; the test fakes the initialize call. */
+    private function startOn(GatewayInstance $instance): Payment
+    {
+        $price = $this->monthlyPrice();
+        app(OnlineCheckout::class)->start(new CheckoutRequest($this->member(), $price->plan, $price, $instance, PaystackProvider::MOBILE_MONEY, 'ama@example.test'));
+
+        return Payment::query()->latest('id')->firstOrFail();
     }
 
     public function test_a_bad_signature_is_401_and_changes_nothing_and_logs_no_secret(): void
@@ -110,7 +153,7 @@ class WebhookAndReconcileTest extends TestCase
         $abandoned->forceFill(['created_at' => now()->subDays(2)])->save();
         Http::fake([
             "api.paystack.co/transaction/verify/{$late->reference}" => $this->paystackTransaction((string) $late->reference),
-            '*' => $this->paystackTransaction('x', 'abandoned'),
+            '*' => fn ($request) => $this->paystackTransaction(rawurldecode((string) str($request->url())->afterLast('/')), 'abandoned'),
         ]);
 
         $this->artisan('billing:reconcile-payments')->assertSuccessful();
@@ -135,7 +178,8 @@ class WebhookAndReconcileTest extends TestCase
         $this->artisan('billing:reconcile-payments')->assertSuccessful();
 
         $this->assertSame(PaymentStatus::Failed, $stale->refresh()->status);
-        $this->assertSame('abandoned', $stale->failure_reason);
+        $this->assertSame('unverifiable', $stale->failure_reason, 'never checked: it may have been paid');
+        $this->assertSame('Invalid key', $stale->meta['failure']['provider_message']);
         $this->assertSame(PaymentStatus::Pending, $recent->refresh()->status, 'still inside the abandon window');
     }
 

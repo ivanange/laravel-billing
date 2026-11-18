@@ -55,6 +55,7 @@ abstract class AbstractRequest extends BaseRequest
         $response = $this->httpClient->request($method, $url, $headers, $body === null ? null : (string) json_encode($body));
         $decoded = json_decode((string) $response->getBody(), true);
 
-        return (is_array($decoded) ? $decoded : []) + ['httpStatus' => $response->getStatusCode()];
+        // Merged last: a body carrying its own "httpStatus" must not override the real one.
+        return array_merge(is_array($decoded) ? $decoded : [], ['httpStatus' => $response->getStatusCode()]);
     }
 }

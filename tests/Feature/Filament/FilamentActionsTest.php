@@ -110,6 +110,48 @@ class FilamentActionsTest extends FilamentTestCase
         $this->assertSame(PaymentStatus::Refunded, $online->refresh()->status);
     }
 
+    public function test_maker_checker_through_the_actions_needs_a_second_user_with_the_confirm_ability(): void
+    {
+        config(['billing.confirmation.second_person' => true]);
+        $maker = $this->user('Maker');
+        $bystander = $this->user('Bystander');
+        $checker = $this->user('Checker');
+        Gate::define('billing.confirm', fn ($user): bool => $user->isNot($bystander));
+        $member = $this->member();
+        $price = $this->monthlyPrice();
+
+        $this->actingAs($maker);
+        Livewire::test(ListMembers::class)
+            ->callAction(TestAction::make('recordPayment')->table($member), [
+                'plan_id' => $price->plan_id,
+                'price_id' => $price->id,
+                'amount' => 15,
+                'gateway_instance_id' => $this->gateway()->id,
+                'method' => 'cash',
+                'paid_on' => '2026-03-10',
+            ])
+            ->assertNotified(__('billing::billing.ui.record.awaiting'));
+        $payment = Payment::query()->sole();
+        $this->assertSame($maker->id, $payment->recorded_by);
+
+        Livewire::test(ListPayments::class)->assertActionHidden(TestAction::make('confirmPayment')->table($payment));
+        Livewire::test(ViewPayment::class, ['record' => $payment->id])->assertActionHidden('confirmPayment');
+        $this->assertSame(PaymentStatus::Recorded, $payment->refresh()->status, 'the recorder cannot confirm');
+
+        $this->actingAs($bystander);
+        Livewire::test(ListPayments::class)->assertActionHidden(TestAction::make('confirmPayment')->table($payment));
+
+        $this->actingAs($checker);
+        Livewire::test(ListPayments::class)
+            ->assertActionVisible(TestAction::make('confirmPayment')->table($payment))
+            ->callAction(TestAction::make('confirmPayment')->table($payment))
+            ->assertNotified(__('billing::billing.ui.payment.confirmed'));
+
+        $this->assertSame(PaymentStatus::Confirmed, $payment->refresh()->status);
+        $this->assertSame($checker->id, $payment->confirmed_by);
+        $this->assertTrue($member->isCovered());
+    }
+
     public function test_pay_link_action_respects_the_record_ability_per_billable(): void
     {
         $allowed = $this->member('Allowed');

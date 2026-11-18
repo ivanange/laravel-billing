@@ -23,7 +23,6 @@ use Ivanange\Billing\Gateways\PaymentMethod;
 use Ivanange\Billing\Gateways\SettingField;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Payment;
-use Ivanange\Billing\Support\Money;
 use Omnipay\Common\Message\ResponseInterface;
 
 /**
@@ -114,7 +113,6 @@ class HubtelProvider extends OmnipayProvider implements ReceivesWebhooks
         }
 
         $transaction = $response->transaction();
-        $amount = $transaction['amount'] ?? null;
 
         return new ChargeResult(
             status: match (true) {
@@ -122,8 +120,10 @@ class HubtelProvider extends OmnipayProvider implements ReceivesWebhooks
                 $response->isFailed() => ChargeStatus::Failed,
                 default => ChargeStatus::Pending,
             },
-            reference: $reference,
-            amount: is_numeric($amount) ? Money::toMinor($amount, 'GHS') : null,
+            // Only Hubtel's own clientReference counts: echoing the one we asked
+            // about would make the settler's reference check meaningless.
+            reference: $this->stringOrNull($transaction['clientReference'] ?? null) ?? '',
+            amount: $this->minorOrNull($transaction['amount'] ?? null, 'GHS'),
             // Hubtel documents currencyCode as possibly null; checkout is GHS only.
             currency: $this->stringOrNull($transaction['currencyCode'] ?? null) ?? 'GHS',
             externalId: $response->getTransactionReference(),
@@ -164,9 +164,9 @@ class HubtelProvider extends OmnipayProvider implements ReceivesWebhooks
 
         try {
             return $this->verify($instance, $reference);
-        } catch (GatewayError) {
+        } catch (GatewayError $e) {
             // Hubtel unreachable: the reconcile command will retry.
-            Log::warning('billing: Hubtel status check failed for a callback', ['gateway_instance_id' => $instance->getKey()]);
+            Log::warning('billing: Hubtel status check failed for a callback', ['gateway_instance_id' => $instance->getKey(), 'provider_message' => $e->providerMessage]);
 
             return null;
         }

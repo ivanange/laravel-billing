@@ -8,7 +8,6 @@ use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -18,9 +17,9 @@ use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 use Ivanange\Billing\Contracts\Billable;
 use Ivanange\Billing\Contracts\ManualConfirmation;
@@ -38,6 +37,8 @@ use Ivanange\Billing\Periods\RangeTerm;
 use Ivanange\Billing\Periods\Term;
 use Ivanange\Billing\Services\PaymentRecorder;
 use Ivanange\Billing\Support\Money;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Throwable;
 
 /**
  * The "record a payment" form shared by the single and group actions, and
@@ -52,7 +53,7 @@ final class RecordPaymentForm
      */
     public static function components(?Model $billable, bool $group): array
     {
-        return [...self::whatFields($billable, $group), ...self::howFields()];
+        return [...PayerFields::components($group), ...self::whatFields($billable, $group), ...self::howFields()];
     }
 
     /**
@@ -61,30 +62,52 @@ final class RecordPaymentForm
      */
     public static function handle(array $data, array $billables, Action $action): void
     {
-        Gate::authorize('billing.record');
         $billables = array_values(array_filter($billables, fn (Model $model): bool => $model instanceof Billable));
+        self::authorize($billables);
+        // The toggle is only shown to managers; enforce it here too.
+        $data['allow_overlap'] = (bool) ($data['allow_overlap'] ?? false) && Gate::allows('billing.manage');
+        $proof = null;
+        $payment = null;
 
         try {
-            $payment = app(PaymentRecorder::class)->record(self::draft($data, $billables), auth()->user());
-        } catch (BillingException|InvalidArgumentException $e) {
-            // The uploaded proof is kept: the modal stays open and a retry reuses it.
+            $proof = ProofUpload::store($data['proof'] ?? null);
+            $draft = self::draft(['proof' => $proof] + $data, $billables);
+            // In our own transaction the recorder's events wait for our commit,
+            // so $payment is known before a failing listener can throw.
+            app(ConnectionInterface::class)->transaction(function () use ($draft, &$payment): void {
+                $payment = app(PaymentRecorder::class)->record($draft, auth()->user());
+            });
+        } catch (Throwable $e) {
+            if (self::persisted($payment)) {
+                // The payment is saved: keep its proof and do not invite a
+                // retry that would record it twice.
+                report($e);
+                self::forgetUpload($data);
+                Notification::make()->warning()
+                    ->title(__('billing::billing.ui.record.recorded_with_errors'))
+                    ->body(__('billing::billing.ui.record.recorded_with_errors_body'))
+                    ->persistent()
+                    ->send();
+
+                return;
+            }
+
+            // Nothing is left on the disk; the temporary upload stays in the
+            // still-open modal, so a retry stores it again.
+            ProofUpload::discard($proof);
+
+            if (! $e instanceof BillingException && ! $e instanceof InvalidArgumentException) {
+                throw $e;
+            }
+
             Notification::make()->danger()->title(__('billing::billing.ui.record.failed'))->body($e->getMessage())->send();
             $action->halt();
 
             return;
         }
 
-        $confirmed = $payment->status === PaymentStatus::Confirmed;
-        $until = count($billables) === 1 ? $billables[0]->paidUntil($payment->coveragePeriods->first()?->subscription?->plan) : null;
-
-        Notification::make()
-            ->success()
-            ->title($confirmed ? __('billing::billing.ui.record.done') : __('billing::billing.ui.record.awaiting'))
-            ->body(implode(' ', array_filter([
-                $payment->formattedAmount(),
-                $confirmed && $until ? __('billing::billing.ui.record.covered_until', ['date' => $until->isoFormat('LL')]) : null,
-            ])))
-            ->send();
+        self::forgetUpload($data);
+        self::notifyRecorded($payment, $billables);
     }
 
     /**
@@ -105,11 +128,67 @@ final class RecordPaymentForm
             amountPerBillable: Money::toMinor((string) ($data['amount'] ?? ''), $plan->currency),
             startsOn: self::date($data['starts_on'] ?? null),
             paidOn: self::date($data['paid_on'] ?? null),
+            payer: PayerFields::resolve($data),
             reference: $data['reference'] ?? null,
-            proofPath: self::proofPath($data['proof'] ?? null),
+            proofPath: ProofUpload::validPath($data['proof'] ?? null),
             notes: $data['notes'] ?? null,
             allowOverlap: (bool) ($data['allow_overlap'] ?? false),
         );
+    }
+
+    /**
+     * billing.record gets each billable, as it does for pay links.
+     *
+     * @param  list<Model&Billable>  $billables
+     */
+    private static function authorize(array $billables): void
+    {
+        if ($billables === []) {
+            Gate::authorize('billing.record');
+        }
+
+        foreach ($billables as $billable) {
+            Gate::authorize('billing.record', [$billable]);
+        }
+    }
+
+    /**
+     * Whether the payment survived: a failure after the commit leaves it.
+     * If even that check fails, keep the proof; a stray file beats a payment
+     * whose proof is gone.
+     */
+    private static function persisted(?Payment $payment): bool
+    {
+        return $payment !== null
+            && (bool) rescue(fn (): bool => Payment::query()->whereKey($payment->getKey())->exists(), true, report: false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private static function forgetUpload(array $data): void
+    {
+        if (($data['proof'] ?? null) instanceof TemporaryUploadedFile) {
+            $data['proof']->delete();
+        }
+    }
+
+    /**
+     * @param  list<Model&Billable>  $billables
+     */
+    private static function notifyRecorded(Payment $payment, array $billables): void
+    {
+        $confirmed = $payment->status === PaymentStatus::Confirmed;
+        $until = count($billables) === 1 ? $billables[0]->paidUntil($payment->coveragePeriods->first()?->subscription?->plan) : null;
+
+        Notification::make()
+            ->success()
+            ->title($confirmed ? __('billing::billing.ui.record.done') : __('billing::billing.ui.record.awaiting'))
+            ->body(implode(' ', array_filter([
+                $payment->formattedAmount(),
+                $confirmed && $until ? __('billing::billing.ui.record.covered_until', ['date' => $until->isoFormat('LL')]) : null,
+            ])))
+            ->send();
     }
 
     /**
@@ -223,18 +302,12 @@ final class RecordPaymentForm
                 ->label(__('billing::billing.ui.record.reference'))
                 ->maxLength(191)
                 ->required($needs('require_reference')),
-            FileUpload::make('proof')
-                ->label(__('billing::billing.ui.record.proof'))
-                ->disk((string) config('billing.proofs.disk', 'local'))
-                ->directory((string) config('billing.proofs.directory', 'billing/proofs'))
-                ->visibility('private')
-                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
-                ->maxSize(5120)
-                ->required($needs('require_proof')),
+            ProofUpload::field($needs('require_proof')),
             Textarea::make('notes')->label(__('billing::billing.ui.record.notes'))->rows(2)->maxLength(1000),
             Toggle::make('allow_overlap')
                 ->label(__('billing::billing.ui.record.allow_overlap'))
-                ->helperText(__('billing::billing.ui.record.allow_overlap_help')),
+                ->helperText(__('billing::billing.ui.record.allow_overlap_help'))
+                ->visible(fn (): bool => Gate::allows('billing.manage')),
         ];
     }
 
@@ -299,29 +372,5 @@ final class RecordPaymentForm
     private static function date(mixed $value): ?CarbonImmutable
     {
         return blank($value) ? null : CarbonImmutable::parse((string) $value)->startOfDay();
-    }
-
-    /**
-     * The proof path comes back from the browser as a string, so accept only
-     * a fresh Filament upload name in the proofs directory that exists and
-     * no other payment uses; anything else could point at another file.
-     */
-    private static function proofPath(mixed $path): ?string
-    {
-        if (blank($path)) {
-            return null;
-        }
-
-        $directory = preg_quote(trim((string) config('billing.proofs.directory', 'billing/proofs'), '/'), '#');
-        $valid = is_string($path)
-            && preg_match('#^'.$directory.'/[0-9A-Za-z]{26}\.(jpe?g|png|webp|pdf)$#i', $path) === 1
-            && Storage::disk((string) config('billing.proofs.disk', 'local'))->exists($path)
-            && ! Payment::query()->where('proof_path', $path)->exists();
-
-        if (! $valid) {
-            throw new InvalidArgumentException(__('billing::billing.ui.record.invalid_proof'));
-        }
-
-        return $path;
     }
 }

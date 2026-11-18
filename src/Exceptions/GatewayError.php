@@ -8,6 +8,8 @@ namespace Ivanange\Billing\Exceptions;
  * The provider refused or could not be reached. The message is translated
  * and safe for payers; the provider's own message is kept separately for
  * logs (it never contains credentials).
+ *
+ * @phpstan-consistent-constructor
  */
 class GatewayError extends BillingException
 {
@@ -30,9 +32,9 @@ class GatewayError extends BillingException
         return mb_substr($clean, 0, 300);
     }
 
-    public static function from(?string $providerMessage, ?\Throwable $previous = null): self
+    public static function from(?string $providerMessage, ?\Throwable $previous = null): static
     {
-        $error = new self(__('billing::billing.errors.gateway_error'));
+        $error = new static(__('billing::billing.errors.gateway_error'));
         $error->providerMessage = self::redact($providerMessage);
         $error->previousClass = $previous === null ? null : $previous::class;
 

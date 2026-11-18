@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\Factory as ViewFactory;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Ivanange\Billing\Contracts\ChargesOnce;
+use Ivanange\Billing\Enums\FailureReason;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Exceptions\GatewayError;
 use Ivanange\Billing\Models\Payment;
@@ -51,9 +52,10 @@ class PaymentReturnController
     }
 
     /**
-     * Pending payments are always re-checked. Failed ones only while a
-     * late success is plausible (declined/abandoned, within a day), so a
-     * reference can't be used to make us call the provider forever.
+     * Pending payments are always re-checked. Failed ones only while a late
+     * success is plausible (declined, abandoned or unverifiable, within a
+     * day), so a reference can't be used to make us call the provider
+     * forever.
      */
     private function shouldVerify(Payment $payment): bool
     {
@@ -62,7 +64,7 @@ class PaymentReturnController
         }
 
         return $payment->status === PaymentStatus::Failed
-            && in_array($payment->failure_reason, ['declined', 'abandoned'], true)
+            && in_array($payment->failureReason(), FailureReason::mayStillSucceed(), true)
             && $payment->failed_at !== null
             && $payment->failed_at->gt(now()->subDay());
     }

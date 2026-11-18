@@ -17,10 +17,12 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Ivanange\Billing\Enums\FailureReason;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Enums\PeriodStatus;
 use Ivanange\Billing\Filament\Actions\ConfirmPaymentAction;
 use Ivanange\Billing\Filament\Actions\RefundPaymentAction;
+use Ivanange\Billing\Filament\Actions\ResolveStuckRefundAction;
 use Ivanange\Billing\Filament\Actions\VoidPaymentAction;
 use Ivanange\Billing\Filament\Concerns\GatedResource;
 use Ivanange\Billing\Models\CoveragePeriod;
@@ -74,16 +76,40 @@ class PaymentResource extends Resource
         return __('billing::billing.ui.payment.plural');
     }
 
+    /** Payments waiting on a person: awaiting confirmation, or a refund in progress (possibly stuck). */
     public static function getNavigationBadge(): ?string
     {
-        $waiting = Payment::query()->where('status', PaymentStatus::Recorded->value)->count();
+        $total = array_sum(self::needingAttention());
 
-        return $waiting > 0 ? (string) $waiting : null;
+        return $total > 0 ? (string) $total : null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return self::needingAttention()['refunding'] > 0 ? 'danger' : null;
     }
 
     public static function getNavigationBadgeTooltip(): ?string
     {
-        return __('billing::billing.ui.payment.awaiting_badge');
+        return __('billing::billing.ui.payment.attention_badge', self::needingAttention());
+    }
+
+    /**
+     * @return array{awaiting: int, refunding: int}
+     */
+    private static function needingAttention(): array
+    {
+        $counts = Payment::query()
+            ->whereIn('status', [PaymentStatus::Recorded->value, PaymentStatus::Refunding->value])
+            ->toBase()
+            ->selectRaw('status, count(*) as aggregate')
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+
+        return [
+            'awaiting' => (int) ($counts[PaymentStatus::Recorded->value] ?? 0),
+            'refunding' => (int) ($counts[PaymentStatus::Refunding->value] ?? 0),
+        ];
     }
 
     public static function getEloquentQuery(): Builder
@@ -110,13 +136,21 @@ class PaymentResource extends Resource
                     ->formatStateUsing(fn (Payment $record): string => $record->methodLabel()),
                 TextColumn::make('gatewayInstance.name')->label(__('billing::billing.ui.gateway.label'))->toggleable(),
                 self::statusColumn(),
+                TextColumn::make('failure_reason')
+                    ->label(__('billing::billing.ui.payment.failure_reason'))
+                    ->formatStateUsing(fn (string $state): string => self::failureLabel($state))
+                    ->wrap()
+                    ->toggleable(),
                 TextColumn::make('reference')->label(__('billing::billing.ui.record.reference'))->searchable()->toggleable(),
             ])
             ->filters([
                 SelectFilter::make('status')->label(__('billing::billing.ui.payment.status'))->options(PaymentStatus::options()),
+                // "unverifiable" marks failed payments that may really have been paid.
+                SelectFilter::make('failure_reason')->label(__('billing::billing.ui.payment.failure_reason'))
+                    ->options(FailureReason::options()),
                 SelectFilter::make('gateway_instance_id')->label(__('billing::billing.ui.gateway.label'))->relationship('gatewayInstance', 'name'),
             ])
-            ->recordActions([ViewAction::make(), ConfirmPaymentAction::make(), RefundPaymentAction::make(), VoidPaymentAction::make()]);
+            ->recordActions([ViewAction::make(), ConfirmPaymentAction::make(), RefundPaymentAction::make(), ResolveStuckRefundAction::make(), VoidPaymentAction::make()]);
     }
 
     public static function infolist(Schema $schema): Schema
@@ -136,7 +170,11 @@ class PaymentResource extends Resource
                 TextEntry::make('confirmed_at')->label(__('billing::billing.ui.payment.confirmed_at'))->dateTime()->placeholder('—'),
                 TextEntry::make('failure_reason')->label(__('billing::billing.ui.payment.failure_reason'))
                     ->visible(fn (Payment $record): bool => $record->status === PaymentStatus::Failed)
-                    ->formatStateUsing(fn (string $state): string => __('billing::billing.failure.'.$state)),
+                    ->formatStateUsing(fn (string $state): string => self::failureLabel($state)),
+                TextEntry::make('refundResolver.name')->label(__('billing::billing.ui.payment.refund_resolved_by'))
+                    ->visible(fn (Payment $record): bool => $record->refund_resolved_at !== null)->placeholder('—'),
+                TextEntry::make('refund_resolved_at')->label(__('billing::billing.ui.payment.refund_resolved_at'))
+                    ->visible(fn (Payment $record): bool => $record->refund_resolved_at !== null)->dateTime(),
                 TextEntry::make('external_id')->label(__('billing::billing.ui.payment.reference'))
                     ->visible(fn (Payment $record): bool => $record->isOnline())->placeholder('—'),
                 TextEntry::make('notes')->label(__('billing::billing.ui.record.notes'))->placeholder('—')->columnSpanFull(),
@@ -176,6 +214,12 @@ class PaymentResource extends Resource
             ->badge()
             ->formatStateUsing(fn (PaymentStatus $state): string => $state->label())
             ->color(fn (PaymentStatus $state): string => self::statusColor($state));
+    }
+
+    /** A value this version does not know (written by a host or a later version) is shown as stored. */
+    private static function failureLabel(string $reason): string
+    {
+        return FailureReason::tryFrom($reason)?->label() ?? $reason;
     }
 
     private static function statusColor(PaymentStatus $status): string

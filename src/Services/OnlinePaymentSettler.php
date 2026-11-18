@@ -16,12 +16,14 @@ use Ivanange\Billing\Data\ChargeResult;
 use Ivanange\Billing\Data\PaymentDraft;
 use Ivanange\Billing\Enums\ChargeStatus;
 use Ivanange\Billing\Enums\DurationUnit;
+use Ivanange\Billing\Enums\FailureReason;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Events\PaymentFailed;
 use Ivanange\Billing\Models\Payment;
 use Ivanange\Billing\Models\Plan;
 use Ivanange\Billing\Models\Subscription;
 use Ivanange\Billing\Periods\DurationTerm;
+use Ivanange\Billing\Services\Concerns\DispatchesAfterCommit;
 
 /**
  * Applies a provider's answer (verify call or webhook) to an online
@@ -34,6 +36,8 @@ use Ivanange\Billing\Periods\DurationTerm;
  */
 class OnlinePaymentSettler
 {
+    use DispatchesAfterCommit;
+
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly CoverageAllocator $allocator,
@@ -42,7 +46,7 @@ class OnlinePaymentSettler
 
     public function settle(Payment $payment, ChargeResult $result): Payment
     {
-        if (! in_array($result->reference, array_filter([$payment->reference, $payment->external_id]), true)) {
+        if (! $this->identifies($payment, $result)) {
             Log::warning('billing: result reference does not match payment', ['payment_id' => $payment->getKey()]);
 
             return $payment;
@@ -59,33 +63,46 @@ class OnlinePaymentSettler
         $payment->setRawAttributes($locked->getAttributes(), true);
 
         if ($event === 'confirmed') {
-            $this->confirmer->announce($payment, $subscriptions);
+            $this->afterCommit(fn () => $this->confirmer->announce($payment, $subscriptions));
         } elseif ($event === 'failed') {
-            event(new PaymentFailed($payment));
+            $this->afterCommit(fn () => event(new PaymentFailed($payment)));
         }
 
         return $payment;
     }
 
     /**
-     * Fail a payment the payer never completed. No-op unless still pending.
+     * Whether the provider's answer is about this payment: it must carry
+     * our reference or the provider id stored for it.
      */
-    public function abandon(Payment $payment): Payment
+    public function identifies(Payment $payment, ChargeResult $result): bool
     {
-        $failed = $this->db->transaction(function () use ($payment): bool {
+        return in_array($result->reference, array_filter([$payment->reference, $payment->external_id]), true);
+    }
+
+    /**
+     * Fail a payment the payer never completed. No-op unless still pending.
+     *
+     * @param  FailureReason  $reason  Unverifiable: the last check failed or did not name the
+     *                                 payment, so it may have been paid; a later success still confirms it
+     * @param  array<string, mixed>  $details
+     */
+    public function abandon(Payment $payment, FailureReason $reason = FailureReason::Abandoned, array $details = []): Payment
+    {
+        $failed = $this->db->transaction(function () use ($payment, $reason, $details): bool {
             $locked = Payment::query()->whereKey($payment->getKey())->lockForUpdate()->firstOrFail();
             if ($locked->status !== PaymentStatus::Pending) {
                 return false;
             }
 
-            $this->fail($locked, 'abandoned');
+            $this->fail($locked, $reason, $details);
             $payment->setRawAttributes($locked->getAttributes(), true);
 
             return true;
         });
 
         if ($failed) {
-            event(new PaymentFailed($payment));
+            $this->afterCommit(fn () => event(new PaymentFailed($payment)));
         }
 
         return $payment;
@@ -114,7 +131,7 @@ class OnlinePaymentSettler
         }
 
         if ($result->failed()) {
-            $this->fail($payment, 'declined', ['provider_message' => $result->message]);
+            $this->fail($payment, FailureReason::Declined, ['provider_message' => $result->message]);
 
             return ['failed', []];
         }
@@ -125,7 +142,7 @@ class OnlinePaymentSettler
                 'expected' => [$payment->amount, $payment->currency],
                 'reported' => [$result->amount, $result->currency],
             ]);
-            $this->fail($payment, 'amount_mismatch', ['reported' => ['amount' => $result->amount, 'currency' => $result->currency]]);
+            $this->fail($payment, FailureReason::AmountMismatch, ['reported' => ['amount' => $result->amount, 'currency' => $result->currency]]);
 
             return ['failed', []];
         }
@@ -204,12 +221,12 @@ class OnlinePaymentSettler
     /**
      * @param  array<string, mixed>  $meta
      */
-    private function fail(Payment $payment, string $reason, array $meta = []): void
+    private function fail(Payment $payment, FailureReason $reason, array $meta = []): void
     {
         $payment->forceFill([
             'status' => PaymentStatus::Failed,
             'failed_at' => CarbonImmutable::now(),
-            'failure_reason' => $reason,
+            'failure_reason' => $reason->value,
             'meta' => array_merge((array) $payment->meta, array_filter(['failure' => $meta ?: null])),
         ])->save();
     }

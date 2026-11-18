@@ -11,14 +11,17 @@ use Ivanange\Billing\Data\ChargeResult;
 use Ivanange\Billing\Data\PaymentIntent;
 use Ivanange\Billing\Enums\ChargeStatus;
 use Ivanange\Billing\Exceptions\GatewayError;
+use Ivanange\Billing\Exceptions\GatewayOutcomeUnknown;
 use Ivanange\Billing\Exceptions\InvalidWebhook;
 use Ivanange\Billing\Gateways\Omnipay\NotchPay\Gateway;
+use Ivanange\Billing\Gateways\Omnipay\NotchPay\Message\AbstractRequest;
 use Ivanange\Billing\Gateways\Omnipay\NotchPay\Message\TransactionResponse;
 use Ivanange\Billing\Gateways\Omnipay\OmnipayProvider;
 use Ivanange\Billing\Gateways\PaymentMethod;
 use Ivanange\Billing\Gateways\SettingField;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Payment;
+use Omnipay\Common\Message\RequestInterface;
 use Omnipay\Common\Message\ResponseInterface;
 
 /**
@@ -111,6 +114,7 @@ class NotchPayProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
 
         $transaction = $response->transaction();
 
+        // $reference is already '' when verify() found the answer is about another payment.
         return new ChargeResult(
             status: match (true) {
                 $response->isSuccessful() => ChargeStatus::Succeeded,
@@ -140,28 +144,63 @@ class NotchPayProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
     /**
      * Ask NotchPay with its own reference (trx.…) when we stored one at
      * checkout: that one is documented to work, while lookups by the
-     * merchant's reference are not. The result keeps OUR reference.
+     * merchant's reference are not.
+     *
+     * The answer must name the payment we asked about: our reference (as
+     * "reference" or "trxref"), or the trx.… reference we looked it up by.
+     * Otherwise the result carries an empty reference and confirms nothing.
      */
     public function verify(GatewayInstance $instance, string $reference): ChargeResult
     {
-        $stored = Payment::query()
-            ->where('gateway_instance_id', $instance->getKey())
-            ->where('reference', $reference)
-            ->value('external_id');
-        $lookup = is_string($stored) && str_starts_with($stored, 'trx.') ? $stored : $reference;
+        $scoped = Payment::query()->where('gateway_instance_id', $instance->getKey());
+        $payment = (clone $scoped)->where('reference', $reference)->first()
+            ?? (clone $scoped)->where('external_id', $reference)->first();
 
-        $result = parent::verify($instance, $lookup);
+        $stored = $payment?->external_id;
+        $ours = $payment !== null ? (string) $payment->reference : (self::isNotchPayReference($reference) ? null : $reference);
+        $theirs = match (true) {
+            is_string($stored) && self::isNotchPayReference($stored) => $stored,
+            self::isNotchPayReference($reference) => $reference,
+            default => null,
+        };
 
-        return new ChargeResult($result->status, $reference, $result->amount, $result->currency, $result->externalId, $result->message);
+        $response = $this->send(fn (): RequestInterface => $this->gateway($instance)
+            ->completePurchase($this->verifyParameters($instance, $theirs ?? (string) $ours)));
+
+        $transaction = $response instanceof TransactionResponse ? $response->transaction() : [];
+        $named = array_filter([$this->stringOrNull($transaction['reference'] ?? null), $this->stringOrNull($transaction['trxref'] ?? null)]);
+        $matches = ($ours !== null && in_array($ours, $named, true))
+            || ($theirs !== null && $this->stringOrNull($transaction['reference'] ?? null) === $theirs);
+
+        return $this->resultFromVerify($matches ? $reference : '', $response);
+    }
+
+    private static function isNotchPayReference(string $value): bool
+    {
+        return str_starts_with($value, 'trx.');
     }
 
     protected function refundReference(Payment $payment): string
     {
-        return $payment->external_id !== null && str_starts_with($payment->external_id, 'trx.') ? $payment->external_id : (string) $payment->reference;
+        return $payment->external_id !== null && self::isNotchPayReference($payment->external_id) ? $payment->external_id : (string) $payment->reference;
     }
 
+    /**
+     * Only two answers are decisions: a 2xx carrying a refund object that has
+     * not failed (success), or a readable 4xx other than 408 (refusal). A 2xx
+     * is never a refusal: "202 Accepted" without a refund object, or a
+     * refund object marked failed, may hide a refund already made.
+     */
     protected function resultFromRefund(Payment $payment, ResponseInterface $response): ChargeResult
     {
+        $data = (array) $response->getData();
+        $httpStatus = (int) ($data['httpStatus'] ?? 0);
+        $readableRefusal = ! AbstractRequest::succeeded($data) && (is_array($data['refund'] ?? null) || is_string($data['message'] ?? null));
+
+        if ($this->outcomeUnknown($httpStatus) || ! ($response->isSuccessful() || $readableRefusal)) {
+            throw GatewayOutcomeUnknown::from(sprintf('NotchPay refund: HTTP %d, %s', $httpStatus, $response->getMessage() ?? 'no readable answer'));
+        }
+
         return new ChargeResult(
             status: $response->isSuccessful() ? ChargeStatus::Succeeded : ChargeStatus::Failed,
             reference: (string) $payment->reference,

@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Carbon;
+use Ivanange\Billing\Enums\FailureReason;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Support\BillableName;
 use Ivanange\Billing\Support\Money;
@@ -34,6 +35,12 @@ use Ivanange\Billing\Support\Money;
  * @property string|null $external_id
  * @property string|null $failure_reason
  * @property CarbonImmutable|null $failed_at
+ * @property CarbonImmutable|null $refunded_at
+ * @property int|null $refunded_by
+ * @property CarbonImmutable|null $refund_started_at
+ * @property CarbonImmutable|null $refund_resolved_at
+ * @property int|null $refund_resolved_by
+ * @property 'refunded'|'not_refunded'|null $refund_resolution
  * @property array<string, mixed>|null $meta
  * @property GatewayInstance $gatewayInstance
  */
@@ -56,6 +63,8 @@ class Payment extends Model
             'voided_at' => 'immutable_datetime',
             'failed_at' => 'immutable_datetime',
             'refunded_at' => 'immutable_datetime',
+            'refund_started_at' => 'immutable_datetime',
+            'refund_resolved_at' => 'immutable_datetime',
             'meta' => 'array',
         ];
     }
@@ -144,6 +153,25 @@ class Payment extends Model
     public function refunder(): BelongsTo
     {
         return $this->belongsTo(self::userModel(), 'refunded_by');
+    }
+
+    /**
+     * Who settled a stuck refund by hand.
+     *
+     * @return BelongsTo<Model, $this>
+     */
+    public function refundResolver(): BelongsTo
+    {
+        return $this->belongsTo(self::userModel(), 'refund_resolved_by');
+    }
+
+    /**
+     * The failure reason, or null when none is stored or the stored value is
+     * not one this version knows (it is kept as written, never rejected).
+     */
+    public function failureReason(): ?FailureReason
+    {
+        return is_string($this->failure_reason) ? FailureReason::tryFrom($this->failure_reason) : null;
     }
 
     public function isOnline(): bool

@@ -9,6 +9,8 @@ use Omnipay\Common\Message\RedirectResponseInterface;
 
 /**
  * {"responseCode":"0000","status":"Success","data":{"checkoutUrl":"…","checkoutId":"…","clientReference":"…"}}
+ *
+ * @see https://developers.hubtel.com/docs/business/api_documentation/payment_apis/online_checkout
  */
 class PurchaseResponse extends AbstractResponse implements RedirectResponseInterface
 {

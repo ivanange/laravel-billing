@@ -16,6 +16,7 @@ use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\Payment;
 use Ivanange\Billing\Models\Subscription;
+use Ivanange\Billing\Services\Concerns\DispatchesAfterCommit;
 
 /**
  * Turns a recorded payment into cover. Business rules only; whether the
@@ -23,6 +24,8 @@ use Ivanange\Billing\Models\Subscription;
  */
 class PaymentConfirmer
 {
+    use DispatchesAfterCommit;
+
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly Config $config,
@@ -41,7 +44,7 @@ class PaymentConfirmer
         });
 
         $payment->setRawAttributes($locked->getAttributes(), true);
-        $this->announce($payment, $subscriptions);
+        $this->afterCommit(fn () => $this->announce($payment, $subscriptions));
 
         return $payment;
     }
@@ -49,7 +52,7 @@ class PaymentConfirmer
     /**
      * Confirm inside a caller's transaction, skipping the second-person rule
      * (used when maker-checker is off). Returns the subscriptions touched;
-     * call announce() after the transaction commits.
+     * call announce() once the outermost transaction has committed.
      *
      * @return list<Subscription>
      */

@@ -71,6 +71,8 @@ return [
         'expires_after_days' => 7,
         /* Requests per minute per IP for the pay and return pages. */
         'rate_limit' => 30,
+        /* Checkouts started per hour from one pay link, from any IP. A payer retrying needs a few. */
+        'checkouts_per_link_per_hour' => 20,
     ],
 
     'webhooks' => [

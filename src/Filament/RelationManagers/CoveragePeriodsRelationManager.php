@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ivanange\Billing\Filament\RelationManagers;
 
 use Filament\Actions\Action;
+use Filament\Facades\Filament;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -66,6 +67,8 @@ class CoveragePeriodsRelationManager extends RelationManager
                 Action::make('payment')
                     ->label(__('billing::billing.ui.payment.label'))
                     ->icon('heroicon-o-eye')
+                    // The payments resource can be switched off on the plugin.
+                    ->visible(fn (): bool => in_array(PaymentResource::class, Filament::getCurrentOrDefaultPanel()?->getResources() ?? [], true))
                     ->url(fn (CoveragePeriod $record): ?string => ($payment = $record->payments->first())
                         ? PaymentResource::getUrl('view', ['record' => $payment])
                         : null),

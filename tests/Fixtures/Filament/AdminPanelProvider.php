@@ -22,7 +22,10 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->resources([MemberResource::class])
-            ->plugin(BillingPlugin::make()->billables([Member::class => 'Members']))
+            ->plugin(BillingPlugin::make()
+                ->billables([Member::class => 'Members'])
+                // Tests switch it off with #[DefineEnvironment].
+                ->payments((bool) config('billing-tests.payments_resource', true)))
             ->middleware([EncryptCookies::class, StartSession::class, ShareErrorsFromSession::class])
             ->authMiddleware([Authenticate::class]);
     }

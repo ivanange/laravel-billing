@@ -44,6 +44,18 @@ RecordGroupPaymentBulkAction::make();      // bulk action
 CoveragePeriodsRelationManager::class;     // in getRelations()
 ```
 
+Each resource can be switched off: `->payments(false)`, `->subscriptions(false)`, `->plans(false)`, `->calendars(false)`, `->gatewayInstances(false)`.
+
+**Paid by.** The record form can name a payer among the `billables()` types (a parent paying for a child, a co-operative for its members); left empty, each billable pays for itself. The picker searches a `name` column, or the columns you set with `->billableSearchColumns([Farmer::class => ['name', 'phone']])`, and the key. Which records it may offer:
+
+- `->payerQueryUsing(fn (Builder $query, string $class) => $query->where('team_id', auth()->user()->team_id))` limits search and submit alike. Use it in any multi-tenant app that does not use Filament tenancy.
+- In a Filament tenant panel, a payer model with a resource on the panel gets that resource's query and tenant scope (`scopeToTenant(false)` opts out). A model without a resource is scoped through the panel's ownership relationship (e.g. `team()`); if it has none, the picker offers nobody of that type until `payerQueryUsing()` says who.
+- Each record must also pass `billing.record`, which receives it as its argument.
+
+The package knows only Filament's tenancy, your model's global scopes, `payerQueryUsing()` and `billing.record`. A tenant rule your app enforces anywhere else (its own controllers, a resource on another panel) does not reach the picker until you add it to one of these.
+
+Proofs of payment must be JPEG, PNG, WebP or PDF up to 5 MB. The type is read from the file's content, not its name or the browser's word, and the file is stored server-side as `<ULID>.<ext>`.
+
 Schedule the daily check, which fires `CoverageExpiring` and `CoverageLapsed` once per cover end:
 
 ```php
@@ -86,7 +98,7 @@ composer require omnipay/common paystackhq/omnipay-paystack
    Schedule::command('billing:reconcile-payments')->everyFifteenMinutes();
    ```
 
-**How an online payment progresses.** It starts as `pending`, with no cover yet. It becomes `confirmed` only once the provider confirms the same reference, amount and currency; that is when the cover is created. Otherwise it ends `failed` (declined, abandoned or mismatched). A confirmed payment can then be `refunded`. Duplicate webhooks and callback/webhook races confirm a payment only once.
+**How an online payment progresses.** It starts as `pending`, with no cover yet. It becomes `confirmed` only once the provider confirms the same reference, amount and currency; that is when the cover is created. Otherwise it ends `failed` (declined, abandoned or mismatched). When the abandon window ends and the last check with the provider errored (outage, IP not whitelisted) or its answer did not name the payment, it ends `failed` with the reason `unverifiable`: it may really have been paid, so check those with the provider (the payments list filters by failure reason); a later success still confirms it. A confirmed payment can then be `refunded`. If the provider does not answer a refund clearly (timeout, server error, an accepted-but-unconfirmed answer), the payment stays `refunding` until someone checks with the provider and settles it with the **Settle stuck refund** action in Filament (needs `billing.refund`) or `PaymentRefunder::resolveStuck()`; this is refused until the refund call can no longer be running (`billing.online.http_timeout` plus a minute). Refunds in progress count in the payments navigation badge. Duplicate webhooks and callback/webhook races confirm a payment only once.
 
 **HTTP calls.** Calls to providers go through Laravel's `Http` client, so `Http::fake()` works in your tests.
 
@@ -120,7 +132,7 @@ See `docs/KOMPASS_MIGRATION.md`. `php artisan billing:kompass-dry-run --connecti
 
 Gate abilities `billing.view`, `billing.record`, `billing.confirm`, `billing.void` and `billing.manage` allow any signed-in user unless your app defines them, or you set `billing.authorize_by_default` to `false`.
 
-`billing.refund` sends money back, so it is **denied** unless your app defines it. `billing.record` receives the billable as its argument, so you can scope pay links per record or tenant.
+`billing.refund` sends money back, so it is **denied** unless your app defines it. `billing.record` receives the billable as its argument (for the record action, each billable recorded for and the payer named; for pay links, the billable), so you can scope per record or tenant. The group bulk action's visibility is checked without one.
 
 ## Configuration
 

@@ -10,6 +10,7 @@ use Ivanange\Billing\Contracts\Refunds;
 use Ivanange\Billing\Data\ChargeResult;
 use Ivanange\Billing\Data\PaymentIntent;
 use Ivanange\Billing\Enums\ChargeStatus;
+use Ivanange\Billing\Exceptions\GatewayOutcomeUnknown;
 use Ivanange\Billing\Exceptions\InvalidWebhook;
 use Ivanange\Billing\Gateways\Omnipay\OmnipayProvider;
 use Ivanange\Billing\Gateways\Omnipay\Paystack\PaystackGateway;
@@ -97,10 +98,24 @@ class PaystackProvider extends OmnipayProvider implements ReceivesWebhooks, Refu
         return $this->toResult($reference, $data, $response->getMessage());
     }
 
+    /**
+     * Only two answers are decisions: a 2xx saying {"status": true}
+     * (success), or a 4xx other than 408 saying {"status": false} (refusal).
+     * Anything else, a 2xx saying false included, may hide a refund
+     * Paystack already queued.
+     *
+     * @see https://paystack.com/docs/api/refund/#create
+     */
     protected function resultFromRefund(Payment $payment, ResponseInterface $response): ChargeResult
     {
         $data = (array) $response->getData();
-        $accepted = (bool) data_get($data, 'status', false);
+        $httpStatus = (int) ($data['httpStatus'] ?? 0);
+        $accepted = $httpStatus >= 200 && $httpStatus < 300 && ($data['status'] ?? null) === true;
+        $refused = ! ($httpStatus >= 200 && $httpStatus < 300) && ($data['status'] ?? null) === false;
+
+        if ($this->outcomeUnknown($httpStatus) || ! ($accepted || $refused)) {
+            throw GatewayOutcomeUnknown::from(sprintf('Paystack refund: HTTP %d, %s', $httpStatus, $this->stringOrNull($data['message'] ?? null) ?? 'no readable answer'));
+        }
 
         return new ChargeResult(
             status: $accepted ? ChargeStatus::Succeeded : ChargeStatus::Failed,

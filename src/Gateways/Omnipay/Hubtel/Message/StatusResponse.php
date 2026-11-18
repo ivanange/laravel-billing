@@ -9,6 +9,8 @@ use Omnipay\Common\Message\AbstractResponse;
 /**
  * {"responseCode":"0000","data":{"status":"Paid|Unpaid|Refunded","amount":0.1,"currencyCode":null,
  *  "clientReference":"…","transactionId":"…",…}}
+ *
+ * @see https://developers.hubtel.com/docs/business/api_documentation/payment_apis/online_checkout
  */
 class StatusResponse extends AbstractResponse
 {

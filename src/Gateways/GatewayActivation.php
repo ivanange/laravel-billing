@@ -9,6 +9,7 @@ use Illuminate\Database\ConnectionInterface;
 use Ivanange\Billing\Events\GatewayActivated;
 use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Models\GatewayInstance;
+use Ivanange\Billing\Services\Concerns\DispatchesAfterCommit;
 
 /**
  * Switches which instance of a provider is offered for new payments. This
@@ -17,6 +18,8 @@ use Ivanange\Billing\Models\GatewayInstance;
  */
 class GatewayActivation
 {
+    use DispatchesAfterCommit;
+
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly Config $config,
@@ -40,7 +43,7 @@ class GatewayActivation
             $instance->forceFill(['is_active' => true])->save();
         });
 
-        event(new GatewayActivated($instance));
+        $this->afterCommit(fn () => event(new GatewayActivated($instance)));
     }
 
     public function deactivate(GatewayInstance $instance): void

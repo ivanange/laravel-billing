@@ -43,7 +43,7 @@ abstract class AbstractRequest extends BaseRequest
 
     /**
      * @param  array<string, mixed>|null  $body
-     * @return array<string, mixed>
+     * @return array<string, mixed> decoded body plus "httpStatus"
      */
     protected function call(string $method, string $path, ?array $body = null, bool $grant = false): array
     {
@@ -62,6 +62,17 @@ abstract class AbstractRequest extends BaseRequest
         $response = $this->httpClient->request($method, self::BASE_URL.$path, $headers, $body === null ? null : (string) json_encode($body));
         $decoded = json_decode((string) $response->getBody(), true);
 
-        return (is_array($decoded) ? $decoded : []) + ['code' => $response->getStatusCode()];
+        // The body has its own "code" field; only the real HTTP status counts.
+        return array_merge(is_array($decoded) ? $decoded : [], ['httpStatus' => $response->getStatusCode()]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  as returned by call()
+     */
+    public static function succeeded(array $data): bool
+    {
+        $status = (int) ($data['httpStatus'] ?? 0);
+
+        return $status >= 200 && $status < 300;
     }
 }

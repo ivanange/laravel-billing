@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Ivanange\Billing\Tests;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use InvalidArgumentException;
 use Ivanange\Billing\BillingServiceProvider;
 use Ivanange\Billing\Data\PaymentDraft;
 use Ivanange\Billing\Enums\DurationUnit;
@@ -36,9 +38,29 @@ abstract class TestCase extends Orchestra
     protected function defineEnvironment($app): void
     {
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('k', 32)));
-        $app['config']->set('database.default', 'testing');
+        $app['config']->set('database.default', $this->databaseConnection($app));
         $app['config']->set('auth.providers.users.model', User::class);
         $app['config']->set('billing.providers', [OfflineProvider::class, PaystackProvider::class, NotchPayProvider::class, HubtelProvider::class]);
+    }
+
+    /**
+     * In-memory SQLite by default. Set DB_CONNECTION (mysql, mariadb, pgsql)
+     * plus DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME and DB_PASSWORD to run
+     * the suite on a real server; Testbench's database config reads them.
+     */
+    private function databaseConnection(Application $app): string
+    {
+        $connection = (string) env('DB_CONNECTION', 'sqlite');
+
+        if (in_array($connection, ['sqlite', 'testing'], true)) {
+            return 'testing';
+        }
+
+        if (! is_array($app['config']->get("database.connections.{$connection}"))) {
+            throw new InvalidArgumentException("Unknown DB_CONNECTION [{$connection}] for the test suite.");
+        }
+
+        return $connection;
     }
 
     protected function defineDatabaseMigrations(): void

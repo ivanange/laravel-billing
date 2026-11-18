@@ -51,7 +51,7 @@ class RecordPaymentAction extends Action
             ->modalHeading(fn (): string => __('billing::billing.ui.record.heading', ['name' => $this->resolveBillable()?->billingName()]))
             ->modalSubmitActionLabel(__('billing::billing.ui.record.submit'))
             ->schema(fn (): array => RecordPaymentForm::components($this->resolveBillable(), group: false))
-            ->visible(fn (): bool => Gate::allows('billing.record'))
+            ->visible(fn (): bool => Gate::allows('billing.record', array_filter([$this->resolveBillable()])))
             ->action(function (array $data, Action $action): void {
                 $billable = $this->resolveBillable();
                 abort_if($billable === null, 404);

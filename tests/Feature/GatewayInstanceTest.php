@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Ivanange\Billing\Tests\Feature;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Gateways\GatewayActivation;
 use Ivanange\Billing\Gateways\GatewayCatalog;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Subscription;
+use Ivanange\Billing\Tests\Fixtures\Member;
 use Ivanange\Billing\Tests\TestCase;
 
 class GatewayInstanceTest extends TestCase
@@ -68,6 +70,30 @@ class GatewayInstanceTest extends TestCase
 
         $this->expectException(BillingException::class);
         app(GatewayActivation::class)->activate($instance);
+    }
+
+    public function test_deleting_an_instance_keeps_its_subscriptions_covered_and_renewable_elsewhere(): void
+    {
+        $member = $this->member();
+        $plan = $this->plan();
+        $old = $this->gateway(['name' => 'Old desk']);
+        $this->record(['billables' => [$member], 'plan' => $plan, 'gateway' => $old]);
+
+        $old->delete();
+
+        $subscription = Subscription::query()->with(['gatewayInstance', 'coveragePeriods'])->sole();
+        $this->assertSame('Old desk', $subscription->gatewayInstance->name);
+        $this->assertSame('2026-04-09', $subscription->coveragePeriods->sole()->ends_on->toDateString());
+        $this->assertTrue($member->isCovered());
+        $this->assertSame(1, Member::query()->covered()->count());
+
+        $new = $this->gateway(['name' => 'New desk']);
+        $renewal = $this->record(['billables' => [$member], 'plan' => $plan, 'gateway' => $new]);
+
+        $this->assertSame($new->id, $renewal->gateway_instance_id);
+        $this->assertSame(1, Subscription::query()->count());
+        $this->assertSame('2026-05-09', $subscription->refresh()->paid_until->toDateString());
+        $this->assertTrue($member->isCovered(CarbonImmutable::parse('2026-05-01')));
     }
 
     public function test_credentials_are_encrypted_at_rest_and_hidden(): void

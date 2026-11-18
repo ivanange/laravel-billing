@@ -9,9 +9,9 @@ use Omnipay\Paystack\Gateway;
 
 /**
  * The official Paystack Omnipay driver (paystackhq/omnipay-paystack), with
- * one addition: purchase() can limit the checkout to the payer's chosen
- * channel (card, mobile_money, bank_transfer). The upstream request does
- * not send "channels".
+ * two additions: purchase() can limit the checkout to the payer's chosen
+ * channel (card, mobile_money, bank_transfer), which the upstream request
+ * does not send; refund() keeps the HTTP status of Paystack's answer.
  */
 class PaystackGateway extends Gateway
 {
@@ -21,5 +21,13 @@ class PaystackGateway extends Gateway
     public function purchase(array $parameters = []): RequestInterface
     {
         return $this->createRequest(PurchaseRequest::class, $parameters);
+    }
+
+    /**
+     * @param  array<string, mixed>  $parameters
+     */
+    public function refund(array $parameters = []): RequestInterface
+    {
+        return $this->createRequest(RefundRequest::class, $parameters);
     }
 }

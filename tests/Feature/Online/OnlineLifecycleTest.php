@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Ivanange\Billing\Data\ChargeResult;
 use Ivanange\Billing\Data\CheckoutRequest;
 use Ivanange\Billing\Enums\ChargeStatus;
+use Ivanange\Billing\Enums\FailureReason;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Enums\PeriodStatus;
 use Ivanange\Billing\Events\CoverageExtended;
@@ -24,6 +25,7 @@ use Ivanange\Billing\Services\OnlineCheckout;
 use Ivanange\Billing\Services\OnlinePaymentSettler;
 use Ivanange\Billing\Tests\Support\OnlineHelpers;
 use Ivanange\Billing\Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class OnlineLifecycleTest extends TestCase
 {
@@ -142,6 +144,30 @@ class OnlineLifecycleTest extends TestCase
             $this->assertSame('amount_mismatch', $payment->failure_reason);
             $this->assertSame(['amount' => $amount, 'currency' => $currency], $payment->meta['failure']['reported']);
         }
+        $this->assertSame(0, CoveragePeriod::query()->count());
+    }
+
+    /**
+     * @return array<string, array{0: ?int, 1: string}>
+     */
+    public static function mismatchedAnswers(): array
+    {
+        return ['one pesewa short' => [1499, 'GHS'], 'one pesewa over' => [1501, 'GHS'], 'other currency' => [1500, 'NGN'], 'no amount' => [null, 'GHS']];
+    }
+
+    #[DataProvider('mismatchedAnswers')]
+    public function test_a_verified_answer_with_another_amount_or_currency_fails_without_cover(?int $amount, string $currency): void
+    {
+        $payment = $this->startCheckout();
+        Http::fake(["api.paystack.co/transaction/verify/{$payment->reference}" => Http::response(['status' => true, 'data' => array_filter([
+            'status' => 'success', 'reference' => $payment->reference, 'amount' => $amount, 'currency' => $currency, 'id' => 1,
+        ], fn (mixed $value): bool => $value !== null)])]);
+
+        $this->get(route('billing.pay.return', $payment->reference))->assertOk()->assertSee('did not go through');
+
+        $this->assertSame(PaymentStatus::Failed, $payment->refresh()->status);
+        $this->assertSame(FailureReason::AmountMismatch, $payment->failureReason());
+        $this->assertSame(['amount' => $amount, 'currency' => $currency], $payment->meta['failure']['reported']);
         $this->assertSame(0, CoveragePeriod::query()->count());
     }
 

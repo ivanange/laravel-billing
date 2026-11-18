@@ -17,6 +17,7 @@ use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\Subscription;
 use Ivanange\Billing\Periods\CalendarTerm;
 use Ivanange\Billing\Periods\RangeTerm;
+use Ivanange\Billing\Tests\Fixtures\Company;
 use Ivanange\Billing\Tests\Fixtures\Member;
 use Ivanange\Billing\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -129,6 +130,47 @@ class RecordPaymentTest extends TestCase
 
         $this->record(['billables' => [$member], 'plan' => $plan, 'gateway' => $gateway, 'startsOn' => CarbonImmutable::parse('2026-03-20'), 'allowOverlap' => true]);
         $this->assertSame(2, $member->coveragePeriods()->count());
+    }
+
+    public function test_one_payment_cannot_cover_the_same_days_twice_unless_allowed(): void
+    {
+        $calendar = BillingCalendar::query()->create(['name' => 'Badly drawn']);
+        $spring = $calendar->periods()->create(['label' => 'Spring', 'starts_on' => '2026-04-01', 'ends_on' => '2026-06-30']);
+        $summer = $calendar->periods()->create(['label' => 'Summer', 'starts_on' => '2026-06-01', 'ends_on' => '2026-08-31']);
+        $member = $this->member();
+        $plan = $this->plan();
+        $gateway = $this->gateway();
+        $term = CalendarTerm::fromIds([$spring->id, $summer->id]);
+
+        try {
+            $this->record(['billables' => [$member], 'plan' => $plan, 'gateway' => $gateway, 'term' => $term]);
+            $this->fail('Overlapping spans in one payment should be rejected');
+        } catch (BillingException $e) {
+            $this->assertSame('This payment covers 2026-06-01 to 2026-06-30 twice for Ama. Pick periods that do not share days, or allow the overlap.', $e->getMessage());
+        }
+        $this->assertSame(0, CoveragePeriod::query()->count());
+
+        $this->record(['billables' => [$member], 'plan' => $plan, 'gateway' => $gateway, 'term' => $term, 'allowOverlap' => true]);
+        $this->assertSame(2, $member->coveragePeriods()->count());
+    }
+
+    public function test_a_subscription_is_paid_by_its_billable_unless_a_payer_is_given(): void
+    {
+        $plan = $this->plan();
+        $gateway = $this->gateway();
+        [$a, $b, $c] = [$this->member('A'), $this->member('B'), $this->member('C')];
+        $company = Company::query()->create(['name' => 'Co-op']);
+
+        $group = $this->record(['billables' => [$a, $b], 'plan' => $plan, 'gateway' => $gateway]);
+        $this->assertNull($group->payer_id, 'a group payment without a payer names nobody');
+        foreach ([$a, $b] as $member) {
+            $subscription = $member->subscriptions()->sole();
+            $this->assertTrue($subscription->payer->is($member), "{$member->name} pays for their own subscription");
+        }
+
+        $paid = $this->record(['billables' => [$c], 'plan' => $plan, 'gateway' => $gateway, 'payer' => $company]);
+        $this->assertTrue($paid->payer->is($company));
+        $this->assertTrue($c->subscriptions()->sole()->payer->is($company));
     }
 
     public function test_one_payment_can_cover_a_whole_group(): void

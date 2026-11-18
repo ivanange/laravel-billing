@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Ivanange\Billing\Tests\Feature;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Ivanange\Billing\Enums\PaymentStatus;
 use Ivanange\Billing\Enums\PeriodStatus;
+use Ivanange\Billing\Events\CoverageExtended;
 use Ivanange\Billing\Events\PaymentConfirmed;
+use Ivanange\Billing\Events\PaymentRecorded;
 use Ivanange\Billing\Events\PaymentVoided;
 use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Models\CoveragePeriod;
@@ -16,6 +19,7 @@ use Ivanange\Billing\Models\Subscription;
 use Ivanange\Billing\Services\PaymentConfirmer;
 use Ivanange\Billing\Services\PaymentVoider;
 use Ivanange\Billing\Tests\TestCase;
+use RuntimeException;
 
 class ConfirmAndVoidTest extends TestCase
 {
@@ -115,5 +119,51 @@ class ConfirmAndVoidTest extends TestCase
         $this->assertSame(PeriodStatus::Void, CoveragePeriod::query()->sole()->status);
         $this->expectException(BillingException::class);
         app(PaymentConfirmer::class)->confirm($payment, $this->user('Other'));
+    }
+
+    public function test_no_offline_event_fires_when_an_outer_transaction_rolls_back(): void
+    {
+        config(['billing.confirmation.second_person' => true]);
+        $gateway = $this->gateway();
+        $maker = $this->user('Maker');
+        $toConfirm = $this->record(['gateway' => $gateway], $maker);
+        config(['billing.confirmation.second_person' => false]);
+        $toVoid = $this->record(['gateway' => $gateway]);
+        Event::fake([PaymentRecorded::class, PaymentConfirmed::class, CoverageExtended::class, PaymentVoided::class]);
+
+        try {
+            DB::transaction(function () use ($gateway, $toConfirm, $toVoid): void {
+                $this->record(['gateway' => $gateway]);
+                app(PaymentConfirmer::class)->confirm($toConfirm, $this->user('Checker'));
+                app(PaymentVoider::class)->void($toVoid, 'Entered twice', null);
+
+                throw new RuntimeException('caller rolls back');
+            });
+        } catch (RuntimeException) {
+        }
+
+        Event::assertNotDispatched(PaymentRecorded::class);
+        Event::assertNotDispatched(PaymentConfirmed::class);
+        Event::assertNotDispatched(CoverageExtended::class);
+        Event::assertNotDispatched(PaymentVoided::class);
+        $this->assertSame(PaymentStatus::Recorded, $toConfirm->refresh()->status);
+        $this->assertSame(PaymentStatus::Confirmed, $toVoid->refresh()->status);
+    }
+
+    public function test_offline_events_fire_once_the_outer_transaction_commits(): void
+    {
+        $gateway = $this->gateway();
+        $toVoid = $this->record(['gateway' => $gateway]);
+        Event::fake([PaymentRecorded::class, PaymentConfirmed::class, PaymentVoided::class]);
+
+        DB::transaction(function () use ($gateway, $toVoid): void {
+            $this->record(['gateway' => $gateway]);
+            app(PaymentVoider::class)->void($toVoid, 'Entered twice', null);
+            Event::assertNothingDispatched();
+        });
+
+        Event::assertDispatchedTimes(PaymentRecorded::class, 1);
+        Event::assertDispatchedTimes(PaymentConfirmed::class, 1);
+        Event::assertDispatchedTimes(PaymentVoided::class, 1);
     }
 }

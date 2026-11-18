@@ -11,6 +11,8 @@ use Omnipay\Common\Message\RedirectResponseInterface;
  * 201 {"status":"Accepted","transaction":{...},"authorization_url":"https://pay.notchpay.co/..."}
  * The docs disagree on whether "transaction" is an object or an id string,
  * so only authorization_url is relied on.
+ *
+ * @see https://developer.notchpay.co/api-reference/payments.md
  */
 class PurchaseResponse extends AbstractResponse implements RedirectResponseInterface
 {
@@ -21,7 +23,7 @@ class PurchaseResponse extends AbstractResponse implements RedirectResponseInter
 
     public function isRedirect(): bool
     {
-        return in_array((int) ($this->data['code'] ?? 0), [200, 201], true) && $this->getRedirectUrl() !== null;
+        return AbstractRequest::succeeded($this->data) && $this->getRedirectUrl() !== null;
     }
 
     public function getRedirectUrl(): ?string

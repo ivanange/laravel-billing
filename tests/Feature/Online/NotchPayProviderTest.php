@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Ivanange\Billing\Tests\Feature\Online;
 
 use GuzzleHttp\Promise\PromiseInterface;
-use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -22,6 +21,7 @@ use Ivanange\Billing\Services\OnlineCheckout;
 use Ivanange\Billing\Services\PaymentRefunder;
 use Ivanange\Billing\Tests\Support\OnlineHelpers;
 use Ivanange\Billing\Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Response bodies follow https://developer.notchpay.co/api-reference/payments.md
@@ -44,11 +44,11 @@ class NotchPayProviderTest extends TestCase
         ], 201);
     }
 
-    private function transaction(string $status, int $amount = 5000, string $currency = 'XAF'): PromiseInterface
+    private function transaction(string $status, int $amount = 5000, string $currency = 'XAF', string $reference = 'BIL-X'): PromiseInterface
     {
         return Http::response([
             'status' => 'Accepted', 'message' => 'Transaction retrieved', 'code' => 202,
-            'transaction' => ['id' => 'pay_123', 'reference' => 'BIL-X', 'amount' => $amount, 'currency' => $currency, 'status' => $status],
+            'transaction' => ['id' => 'pay_123', 'reference' => $reference, 'amount' => $amount, 'currency' => $currency, 'status' => $status],
         ], 202);
     }
 
@@ -126,26 +126,39 @@ class NotchPayProviderTest extends TestCase
         $this->assertSame('trx.abc123', $payment->external_id);
 
         // Verified with NotchPay's own reference stored at checkout.
-        Http::fake(['api.notchpay.co/payments/trx.abc123' => $this->transaction('complete')]);
+        Http::fake(['api.notchpay.co/payments/trx.abc123' => $this->transaction('complete', reference: (string) $payment->reference)]);
         $this->get(route('billing.pay.return', $payment->reference))->assertOk();
 
         $this->assertSame(PaymentStatus::Confirmed, $payment->refresh()->status);
         $this->assertSame(5000, $payment->coveragePeriods()->sole()->amount);
     }
 
-    public function test_verify_errors_are_errors_not_pending(): void
+    /**
+     * @return array<string, array{0: array<string, mixed>|string, 1: int}>
+     */
+    public static function verifyErrors(): array
+    {
+        return [
+            'bad key' => [['message' => 'Invalid API key'], 401],
+            'not found' => [['message' => 'Payment not found', 'code' => 404], 404],
+            'html 502' => ['<html>502</html>', 502],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>|string  $body
+     */
+    #[DataProvider('verifyErrors')]
+    public function test_verify_errors_are_errors_not_pending(array|string $body, int $status): void
     {
         $instance = $this->notchpay();
-        foreach ([Http::response(['message' => 'Invalid API key'], 401), Http::response(['message' => 'Payment not found', 'code' => 404], 404), Http::response('<html>502</html>', 502)] as $answer) {
-            Http::fake(['api.notchpay.co/*' => $answer]);
-            try {
-                $this->provider()->verify($instance, 'BIL-X');
-                $this->fail('Expected a gateway error');
-            } catch (GatewayError $e) {
-                $this->assertStringContainsString('NotchPay verify failed', (string) $e->providerMessage);
-            }
-            $this->app->forgetInstance(Factory::class);
-            Http::clearResolvedInstances();
+        Http::fake(['api.notchpay.co/*' => Http::response($body, $status)]);
+
+        try {
+            $this->provider()->verify($instance, 'BIL-X');
+            $this->fail('Expected a gateway error');
+        } catch (GatewayError $e) {
+            $this->assertStringContainsString('NotchPay verify failed', (string) $e->providerMessage);
         }
     }
 
@@ -224,7 +237,7 @@ class NotchPayProviderTest extends TestCase
         app(OnlineCheckout::class)->start(new CheckoutRequest($this->member(), $price->plan, $price, $this->notchpay(), NotchPayProvider::MTN, phone: '+237670000000'));
         $payment = Payment::query()->sole();
         Http::fake([
-            'api.notchpay.co/payments/trx.abc123' => $this->transaction('complete'),
+            'api.notchpay.co/payments/trx.abc123' => $this->transaction('complete', reference: 'trx.abc123'),
             'api.notchpay.co/refunds' => Http::response(['code' => 201, 'message' => 'Refund created', 'refund' => ['id' => 'ref_1', 'status' => 'pending']], 201),
         ]);
         $this->get(route('billing.pay.return', $payment->reference));

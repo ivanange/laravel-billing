@@ -14,6 +14,7 @@ use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Models\CoveragePeriod;
 use Ivanange\Billing\Models\Payment;
 use Ivanange\Billing\Models\Subscription;
+use Ivanange\Billing\Services\Concerns\DispatchesAfterCommit;
 
 /**
  * Cancels a wrong or rejected payment and the cover it bought. Nothing is
@@ -21,6 +22,8 @@ use Ivanange\Billing\Models\Subscription;
  */
 class PaymentVoider
 {
+    use DispatchesAfterCommit;
+
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly CoverageLedger $ledger,
@@ -74,7 +77,7 @@ class PaymentVoider
                 ->each(fn (Subscription $subscription) => $this->ledger->refresh($subscription));
         });
 
-        event(new PaymentVoided($payment));
+        $this->afterCommit(fn () => event(new PaymentVoided($payment)));
 
         return $payment;
     }

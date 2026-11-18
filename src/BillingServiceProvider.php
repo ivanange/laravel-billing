@@ -65,11 +65,27 @@ class BillingServiceProvider extends ServiceProvider
         // shares one ip, and noise on one instance's URL must not starve another.
         RateLimiter::for('billing-webhooks', fn (Request $request): Limit => Limit::perMinute((int) config('billing.webhooks.rate_limit', 120))
             ->by('billing-webhooks|'.$request->route('instance').'|'.$request->ip()));
-        RateLimiter::for('billing-pay', fn (Request $request): array => [
-            Limit::perMinute((int) config('billing.pay_links.rate_limit', 30))->by('billing-pay|'.$request->ip()),
+        RateLimiter::for('billing-pay', function (Request $request): array {
+            $limits = [Limit::perMinute((int) config('billing.pay_links.rate_limit', 30))->by('billing-pay|'.$request->ip())];
+            $reference = $request->route('reference');
+
             // Each return-page hit may call the provider: also cap per reference.
-            Limit::perMinute(10)->by('billing-pay-ref|'.(string) $request->route('reference')),
-        ]);
+            // The pay page itself has no reference; an empty key would make every
+            // payer on the site share one bucket.
+            if (is_string($reference) && $reference !== '') {
+                $limits[] = Limit::perMinute(10)->by('billing-pay-ref|'.$reference);
+            }
+
+            // Each POST creates a pending payment and a provider checkout: cap
+            // them per pay link (its signature), whatever ip they come from.
+            $signature = $request->query('signature');
+            if ($request->isMethod('POST') && is_string($signature) && $signature !== '') {
+                $limits[] = Limit::perHour((int) config('billing.pay_links.checkouts_per_link_per_hour', 20))
+                    ->by('billing-pay-link|'.hash('sha256', $signature));
+            }
+
+            return $limits;
+        });
     }
 
     /**

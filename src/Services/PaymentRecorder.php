@@ -17,6 +17,7 @@ use Ivanange\Billing\Exceptions\BillingException;
 use Ivanange\Billing\Gateways\Providers\OfflineProvider;
 use Ivanange\Billing\Models\GatewayInstance;
 use Ivanange\Billing\Models\Payment;
+use Ivanange\Billing\Services\Concerns\DispatchesAfterCommit;
 
 /**
  * Records a payment and the cover it buys, for one billable or a group,
@@ -25,6 +26,8 @@ use Ivanange\Billing\Models\Payment;
  */
 class PaymentRecorder
 {
+    use DispatchesAfterCommit;
+
     public function __construct(
         private readonly ConnectionInterface $db,
         private readonly Config $config,
@@ -46,11 +49,13 @@ class PaymentRecorder
             return [$payment, $confirmNow ? $this->confirmer->apply($payment, $by) : []];
         });
 
-        event(new PaymentRecorded($payment));
+        $this->afterCommit(function () use ($payment, $confirmNow, $subscriptions): void {
+            event(new PaymentRecorded($payment));
 
-        if ($confirmNow) {
-            $this->confirmer->announce($payment, $subscriptions);
-        }
+            if ($confirmNow) {
+                $this->confirmer->announce($payment, $subscriptions);
+            }
+        });
 
         return $payment->refresh();
     }

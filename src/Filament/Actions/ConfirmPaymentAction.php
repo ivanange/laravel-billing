@@ -30,7 +30,9 @@ class ConfirmPaymentAction extends Action
             ->color('success')
             ->requiresConfirmation()
             ->modalDescription(__('billing::billing.ui.payment.confirm_help'))
-            ->visible(fn (Payment $record): bool => $record->status === PaymentStatus::Recorded && Gate::allows('billing.confirm', $record))
+            ->visible(fn (Payment $record): bool => $record->status === PaymentStatus::Recorded
+                && Gate::allows('billing.confirm', $record)
+                && ! $this->isOwnPaymentUnderMakerChecker($record))
             ->action(function (Payment $record, Action $action): void {
                 Gate::authorize('billing.confirm', $record);
 
@@ -45,5 +47,13 @@ class ConfirmPaymentAction extends Action
 
                 Notification::make()->success()->title(__('billing::billing.ui.payment.confirmed'))->send();
             });
+    }
+
+    /** PaymentConfirmer refuses these anyway; don't offer a button that can only fail. */
+    private function isOwnPaymentUnderMakerChecker(Payment $record): bool
+    {
+        return (bool) config('billing.confirmation.second_person', false)
+            && $record->recorded_by !== null
+            && (string) $record->recorded_by === (string) auth()->id();
     }
 }

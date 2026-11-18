@@ -38,10 +38,10 @@ class HubtelProviderTest extends TestCase
         ]]);
     }
 
-    private function txnStatus(string $status, float $amount = 15.0): PromiseInterface
+    private function txnStatus(string $status, float $amount = 15.0, string $reference = 'BIL-X'): PromiseInterface
     {
         return Http::response(['message' => 'Successful', 'responseCode' => '0000', 'data' => [
-            'date' => '2026-03-10T09:00:00Z', 'status' => $status, 'transactionId' => '7569a11e', 'clientReference' => 'BIL-X',
+            'date' => '2026-03-10T09:00:00Z', 'status' => $status, 'transactionId' => '7569a11e', 'clientReference' => $reference,
             'currencyCode' => null, 'amount' => $amount, 'charges' => 0.3, 'amountAfterCharges' => $amount - 0.3,
         ]]);
     }
@@ -91,11 +91,42 @@ class HubtelProviderTest extends TestCase
         Http::assertSent(fn (HttpRequest $r): bool => $r->url() === "https://api-txnstatus.hubtel.com/transactions/2017101/status?clientReference={$payment->reference}");
     }
 
+    public function test_a_forged_paid_callback_with_a_wrong_amount_changes_nothing_when_the_status_api_says_unpaid(): void
+    {
+        $instance = $this->hubtel();
+        $payment = $this->checkout($instance);
+        Http::fake(['api-txnstatus.hubtel.com/*' => $this->txnStatus('Unpaid', reference: (string) $payment->reference)]);
+
+        $this->postJson(route('billing.webhooks', $instance->id), [
+            'ResponseCode' => '0000', 'Status' => 'Paid',
+            'Data' => ['CheckoutId' => '7569a11e', 'ClientReference' => $payment->reference, 'Status' => 'Paid', 'Amount' => 0.01],
+        ])->assertOk();
+
+        $this->assertSame(PaymentStatus::Pending, $payment->refresh()->status);
+        $this->assertNull($payment->failure_reason, 'the posted amount is never compared, so no mismatch either');
+        $this->assertSame(0, $payment->coveragePeriods()->count());
+        Http::assertSentCount(1);
+    }
+
+    public function test_a_callback_carrying_another_instances_reference_causes_no_outbound_call(): void
+    {
+        config(['billing.gateways.one_active_per_provider' => false]);
+        $mine = $this->hubtel('Hubtel A');
+        $other = $this->hubtel('Hubtel B', ['api_id' => 'other-id', 'api_key' => 'other-key']);
+        $theirs = $this->checkout($other);
+        Http::fake();
+
+        $this->hubtelCallback($mine, $theirs->reference, 'Paid')->assertOk();
+
+        Http::assertNothingSent();
+        $this->assertSame(PaymentStatus::Pending, $theirs->refresh()->status);
+    }
+
     public function test_a_callback_confirms_when_the_status_api_says_paid(): void
     {
         $instance = $this->hubtel();
         $payment = $this->checkout($instance);
-        Http::fake(['api-txnstatus.hubtel.com/*' => $this->txnStatus('Paid')]);
+        Http::fake(['api-txnstatus.hubtel.com/*' => $this->txnStatus('Paid', reference: (string) $payment->reference)]);
 
         $this->hubtelCallback($instance, $payment->reference, 'Failed')->assertOk();
 
@@ -107,7 +138,7 @@ class HubtelProviderTest extends TestCase
     {
         $instance = $this->hubtel();
         $payment = $this->checkout($instance);
-        Http::fake(['api-txnstatus.hubtel.com/*' => $this->txnStatus('Paid', 0.5)]);
+        Http::fake(['api-txnstatus.hubtel.com/*' => $this->txnStatus('Paid', 0.5, (string) $payment->reference)]);
 
         $this->hubtelCallback($instance, $payment->reference)->assertOk();
 

@@ -36,6 +36,7 @@ class CoverageAllocator
 
     private function coverBillable(Payment $payment, PaymentDraft $draft, Model&Billable $billable): void
     {
+        $payer = $draft->subscriptionPayer($billable);
         $subscription = Subscription::query()->firstOrCreate(
             [
                 'plan_id' => $draft->plan->getKey(),
@@ -43,8 +44,8 @@ class CoverageAllocator
                 'billable_id' => $billable->getKey(),
             ],
             [
-                'payer_type' => $draft->payer()?->getMorphClass(),
-                'payer_id' => $draft->payer()?->getKey(),
+                'payer_type' => $payer->getMorphClass(),
+                'payer_id' => $payer->getKey(),
                 'gateway_instance_id' => $draft->gateway->getKey(),
             ],
         );
@@ -107,15 +108,29 @@ class CoverageAllocator
     }
 
     /**
+     * Each new span is checked against the existing periods and against the
+     * spans before it in this payment (e.g. two calendar periods that share
+     * days).
+     *
      * @param  Collection<int, CoveragePeriod>  $taken
      * @param  list<Span>  $spans
      */
     private function guardOverlap(Collection $taken, array $spans, Model&Billable $billable): void
     {
-        foreach ($spans as $span) {
+        foreach ($spans as $i => $span) {
             foreach ($taken as $period) {
                 if ($span->overlaps($period->starts_on, $period->ends_on)) {
                     throw BillingException::overlap($billable->billingName(), $period->starts_on, $period->ends_on);
+                }
+            }
+
+            foreach (array_slice($spans, 0, $i) as $earlier) {
+                if ($span->overlaps($earlier->startsOn, $earlier->endsOn)) {
+                    throw BillingException::because('overlap_in_payment', [
+                        'billable' => $billable->billingName(),
+                        'start' => max($span->startsOn, $earlier->startsOn)->format('Y-m-d'),
+                        'end' => min($span->endsOn, $earlier->endsOn)->format('Y-m-d'),
+                    ]);
                 }
             }
         }

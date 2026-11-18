@@ -8,6 +8,8 @@ use Omnipay\Common\Message\AbstractResponse;
 
 /**
  * {"refund":{"id":"…","status":"pending|processing|complete|failed",…}}
+ *
+ * @see https://developer.notchpay.co/accept-payments/refunds.md
  */
 class RefundResponse extends AbstractResponse
 {
@@ -15,7 +17,7 @@ class RefundResponse extends AbstractResponse
     {
         $refund = $this->data['refund'] ?? null;
 
-        return in_array((int) ($this->data['code'] ?? 0), [200, 201, 202], true)
+        return AbstractRequest::succeeded($this->data)
             && is_array($refund)
             && ($refund['status'] ?? null) !== 'failed';
     }

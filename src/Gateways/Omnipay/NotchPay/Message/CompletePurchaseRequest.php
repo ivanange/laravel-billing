@@ -32,8 +32,8 @@ class CompletePurchaseRequest extends AbstractRequest
 
         // A refused or unreadable answer (bad key, unknown reference, HTML
         // error page) must surface as an error, never as "still pending".
-        if (! in_array((int) $data['code'], [200, 201, 202], true) || ! is_array($data['transaction'] ?? null)) {
-            throw new \RuntimeException(sprintf('NotchPay verify failed (HTTP %d): %s', $data['code'], is_string($data['message'] ?? null) ? $data['message'] : 'no transaction in response'));
+        if (! self::succeeded($data) || ! is_array($data['transaction'] ?? null)) {
+            throw new \RuntimeException(sprintf('NotchPay verify failed (HTTP %d): %s', $data['httpStatus'], is_string($data['message'] ?? null) ? $data['message'] : 'no transaction in response'));
         }
 
         return $this->response = new TransactionResponse($this, $data);
