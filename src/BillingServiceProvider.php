@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Ivanange\Billing\Console\CheckCoverageCommand;
-use Ivanange\Billing\Console\KompassDryRunCommand;
 use Ivanange\Billing\Console\ReconcilePaymentsCommand;
 use Ivanange\Billing\Gateways\ProviderRegistry;
 
@@ -49,7 +48,7 @@ class BillingServiceProvider extends ServiceProvider
         }
 
         if ($this->app->runningInConsole()) {
-            $this->commands([CheckCoverageCommand::class, ReconcilePaymentsCommand::class, KompassDryRunCommand::class]);
+            $this->commands([CheckCoverageCommand::class, ReconcilePaymentsCommand::class]);
             $this->publishes([__DIR__.'/../config/billing.php' => config_path('billing.php')], 'billing-config');
             $this->publishes([__DIR__.'/../database/migrations' => database_path('migrations')], 'billing-migrations');
             $this->publishes([__DIR__.'/../lang' => $this->app->langPath('vendor/billing')], 'billing-lang');

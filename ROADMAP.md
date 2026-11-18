@@ -7,7 +7,7 @@ What is released, what is being worked on and what comes next. The order is firm
 | Release | Contents |
 |---|---|
 | v0.1.0 (2026-11-10) | Offline payments: billable models, plans with price presets, coverage periods (durations, date ranges, named calendars), gateway instances, record → confirm → void, group payments, the daily coverage check, the Filament plugin, English, French and German. |
-| v0.2.0 (2026-11-13) | Online payments through Omnipay: Paystack, NotchPay and Hubtel, signed webhooks, pay links, reconciliation, refunds from Filament. A migration plan and a read-only dry run for apps that already have billing tables. |
+| v0.2.0 (2026-11-13) | Online payments through Omnipay: Paystack, NotchPay and Hubtel, signed webhooks, pay links, reconciliation, refunds from Filament. |
 
 ## In progress: audit fixes for v0.1.0 and v0.2.0
 
@@ -48,7 +48,6 @@ Before it is merged:
 - Gateway availability rules, and payment methods filtered by billable type: designed, not built, not scheduled.
 - `overdue` and `waived` period statuses: designed, not built, not scheduled.
 - Table prefix: keep `billing_` or change it before v0.3.0.
-- The legacy import. Only the plan and the dry run exist, and the import itself may belong in the host app rather than here.
 - Arabic and Spanish translations.
 
 ## Not planned
