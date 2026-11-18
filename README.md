@@ -139,3 +139,7 @@ vendor/bin/phpunit      # unit, feature, Filament panel; live sandbox tests skip
 vendor/bin/pint --test
 composer analyse        # Larastan level 6
 ```
+
+## Roadmap
+
+Released, in progress and planned work: [ROADMAP.md](ROADMAP.md).
